@@ -16,13 +16,18 @@
 12. [Logging Best Practices](#logging-best-practices)
 13. [Flexible Artifact Processing](#flexible-artifact-processing)
 14. [Creating Node Libraries](#creating-node-libraries)
-15. [Appendix](#appendix)
+15. [Library Structure with uv Dependency Management](#library-structure-with-uv-dependency-management)
+16. [Two-Mode UI Pattern (Simple + Custom)](#two-mode-ui-pattern-simple--custom)
+17. [Music/Audio Generation API Patterns](#musicaudio-generation-api-patterns)
+18. [Documentation Patterns for Node Libraries](#documentation-patterns-for-node-libraries)
+19. [Appendix](#appendix)
 
 ## Introduction
 
 Griptape Nodes are modular workflow components that enable users to build complex AI workflows through visual programming. This guide covers both fundamental concepts and advanced patterns for creating robust, user-friendly nodes.
 
 Nodes inherit from BaseNode subclasses:
+
 - **DataNode**: For data processing tasks
 - **ControlNode**: For flow control with exec_in/out
 - **StartNode**: For workflow initialization
@@ -31,13 +36,16 @@ Nodes inherit from BaseNode subclasses:
 ## Core Concepts
 
 ### Base Classes
+
 - **DataNode**: Processes data without execution flow control
 - **ControlNode**: Manages execution flow with exec_in/exec_out connections
 - **StartNode**: Entry points for workflows
 - **EndNode**: Terminal points for workflows
 
 ### Parameters
+
 Define inputs, outputs, and properties via the Parameter class. Parameters support:
+
 - Type validation
 - UI customization
 - Connection constraints
@@ -45,17 +53,21 @@ Define inputs, outputs, and properties via the Parameter class. Parameters suppo
 - Traits (Options, Slider, Button, ColorPicker)
 
 ### Process Method
+
 The `process()` method contains core logic. Set outputs in `self.parameter_output_values`.
 
 ### Node States
+
 - **UNRESOLVED**: Initial state
 - **RESOLVING**: Currently processing
 - **RESOLVED**: Processing complete
 
 ### Connections
+
 Managed via lifecycle callbacks for validation and handling.
 
 ### Events
+
 Use `on_griptape_event` for reacting to workflow events.
 
 ## Setting Up
@@ -79,14 +91,14 @@ class MyNode(DataNode):
         super().__init__(**kwargs)
         self.category = "Category"
         self.description = "Description"
-        
+
         self.add_parameter(Parameter(
             name="input",
             input_types=["str"],
             type="str",
             tooltip="Input parameter"
         ))
-        
+
         self.add_parameter(Parameter(
             name="output",
             output_type="str",
@@ -155,6 +167,7 @@ for tool in tools:
 ```
 
 **Benefits:**
+
 - Multiple connection points in UI
 - Automatic aggregation of inputs
 - Flexible workflow design
@@ -163,6 +176,7 @@ for tool in tools:
 ### Common Parameter Patterns
 
 #### Search Input with Placeholder
+
 ```python
 Parameter(
     name="search_query",
@@ -175,6 +189,7 @@ Parameter(
 ```
 
 #### Full-Width List Output
+
 ```python
 Parameter(
     name="results",
@@ -187,6 +202,7 @@ Parameter(
 ```
 
 #### Multiline Text Input
+
 ```python
 Parameter(
     name="prompt",
@@ -199,6 +215,7 @@ Parameter(
 ```
 
 #### File Upload with Browser
+
 ```python
 Parameter(
     name="image",
@@ -226,7 +243,7 @@ def after_value_set(self, parameter: Parameter, value: Any) -> None:
         elif value == "image-to-image":
             self.show_parameter_by_name("input_image")
             self.show_parameter_by_name("prompt")
-    
+
     return super().after_value_set(parameter, value)
 ```
 
@@ -256,7 +273,7 @@ self.add_parameter(
         name="images",
         input_types=[
             "ImageArtifact",
-            "ImageUrlArtifact", 
+            "ImageUrlArtifact",
             "str",
             "list",
             "list[ImageArtifact]",
@@ -293,6 +310,7 @@ All callbacks are overridable:
 ## Best Practices
 
 ### Core Principles
+
 - **Descriptive names and tooltips**
 - **Robust error handling with validators**
 - **Single responsibility per node**
@@ -310,7 +328,7 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 class MyNode(DataNode):
     SERVICE_NAME = "MyService"
     API_KEY_NAME = "MY_SERVICE_API_KEY"
-    
+
     def _validate_api_key(self) -> str:
         api_key = GriptapeNodes.SecretsManager().get_secret(self.API_KEY_NAME)
         if not api_key:
@@ -319,6 +337,7 @@ class MyNode(DataNode):
 ```
 
 **Key Points:**
+
 - Import `GriptapeNodes` at module level, not inside functions
 - Use `SecretsManager().get_secret()` to retrieve secrets
 - Define `API_KEY_NAME` as a class constant for consistency
@@ -329,6 +348,7 @@ class MyNode(DataNode):
 **Always import dependencies at module level, not inside functions:**
 
 ❌ **Bad** - Conditional/lazy imports:
+
 ```python
 def _get_image_data(self, image_artifact):
     try:
@@ -338,6 +358,7 @@ def _get_image_data(self, image_artifact):
 ```
 
 ✅ **Good** - Module-level imports:
+
 ```python
 # At top of file
 from PIL import Image
@@ -348,6 +369,7 @@ def _get_image_data(self, image_artifact):
 ```
 
 **Why?**
+
 - Makes dependencies clear and visible
 - Avoids redundant imports throughout the file
 - Follows Python best practices (PEP 8)
@@ -355,6 +377,7 @@ def _get_image_data(self, image_artifact):
 - Better IDE support and code completion
 
 **Exception**: Only use conditional imports for truly optional dependencies that may not be installed:
+
 ```python
 def process(self) -> None:
     try:
@@ -365,6 +388,91 @@ def process(self) -> None:
         raise ImportError(error_msg)
 ```
 
+### Import Organization
+
+Organize imports in standard order with blank lines between groups:
+
+```python
+# Standard library imports
+import base64
+import logging
+from typing import Any
+
+# Third-party imports
+import requests
+from PIL import Image
+
+# Local/Griptape imports
+from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
+from griptape_nodes.exe_types.node_types import DataNode
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+```
+
+### Type Checking for Third-Party Libraries
+
+When importing third-party libraries that aren't available in CI type checking environments (like `sklearn`, `ultralytics`, `supervision`), use the `type: ignore[import-untyped]` comment:
+
+```python
+# ✅ CORRECT: Suppresses type checking errors for untyped imports
+from sklearn.cluster import KMeans  # type: ignore[import-untyped]
+from ultralytics import YOLO  # type: ignore[import-untyped]
+from supervision import Detections  # type: ignore[import-untyped]
+```
+
+**Why `import-untyped` over `reportMissingImports`?**
+
+- More precise - targets untyped imports specifically
+- Preferred format across the codebase
+- Cleaner type check logs
+
+### Function Parameter Management
+
+Keep function argument counts low (under 6) by using dataclasses:
+
+❌ **Bad** - Too many parameters:
+
+```python
+def process_bbox(self, x: int, y: int, width: int, height: int,
+                 dilation_percent: float, img_width: int, img_height: int):
+    # Process bounding box
+```
+
+✅ **Good** - Use dataclass:
+
+```python
+from dataclasses import dataclass
+
+@dataclass
+class BoundingBox:
+    x: int
+    y: int
+    width: int
+    height: int
+    dilation_percent: float
+    img_width: int
+    img_height: int
+
+def process_bbox(self, bbox: BoundingBox):
+    # Process bounding box using bbox.x, bbox.y, etc.
+```
+
+**Benefits:**
+
+- Improved readability
+- Type safety
+- Easier to maintain
+- Self-documenting code
+
+### Code Quality
+
+**Additional linting best practices:**
+
+- Remove trailing whitespace from all lines (including blank lines)
+- Use consistent indentation (spaces only, no tabs)
+- Keep lines under 120 characters when possible
+- Use descriptive variable names
+- **Do NOT create `__init__.py` files** - they are not needed and should not be used
+
 ## Advanced Topics
 
 ### REST API vs SDK Integration
@@ -372,6 +480,7 @@ def process(self) -> None:
 **Problem**: Python SDKs often lag behind REST APIs in supporting new features. Parameters available in REST API documentation may not be exposed in SDK libraries.
 
 **When to Use REST API Directly**:
+
 - SDK missing documented API features (e.g., `image_config` for Gemini)
 - Need immediate access to new API parameters
 - SDK has bugs or limitations
@@ -448,6 +557,7 @@ for cand in candidates:
 ```
 
 **Key Considerations**:
+
 1. **Dependencies**: Use `google-auth` instead of full SDK (`google-cloud-aiplatform`, `google-genai`)
 2. **Regional Availability**: Some models only work in specific regions (e.g., `us-central1`), not `global`
 3. **Model Names**: Check for `-preview` suffix differences between preview and stable models
@@ -457,6 +567,7 @@ for cand in candidates:
 7. **Error Handling**: Parse JSON error responses for detailed error messages
 
 **Trade-offs**:
+
 - ✅ Immediate access to all API features
 - ✅ Lighter dependencies
 - ✅ Full control over requests
@@ -472,13 +583,13 @@ For nodes that need sophisticated type negotiation between multiple parameters:
 class IfElse(BaseNode):
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         super().__init__(name, metadata)
-        
+
         # Sophisticated connection tracking for type management
         self._possibility_space: list[str] = []  # Types acceptable to output target
         self._locked_type: str | None = None     # Specific type locked by input
         self._connected_inputs: set[str] = set() # Track input connections
         self._output_connected: bool = False     # Track output connections
-    
+
     def _update_parameter_types(self) -> None:
         """Update all parameter types based on current state."""
         if self._locked_type:
@@ -512,12 +623,12 @@ class MyAgentNode(ControlNode):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.add_parameter(Parameter(
-            name="agent_in", 
-            input_types=["Agent"], 
+            name="agent_in",
+            input_types=["Agent"],
             type="Agent"
         ))
         self.add_parameter(Parameter(
-            name="agent_out", 
+            name="agent_out",
             output_type="Agent"
         ))
 
@@ -538,12 +649,12 @@ from typing import Any
 
 class BaseIterativeStartNode(StartLoopNode):
     """Base class for all iterative start nodes (ForEach, ForLoop, etc.)."""
-    
+
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         super().__init__(name, metadata)
         self._current_iteration_count = 0
         self._total_iterations = 0
-        
+
         # Common parameters for all iterative nodes
         self.index_count = Parameter(
             name="index",
@@ -553,11 +664,11 @@ class BaseIterativeStartNode(StartLoopNode):
             settable=False,
             default_value=0,
         )
-    
+
     @abstractmethod
     def _get_iteration_items(self) -> list[Any]:
         """Get the list of items to iterate over."""
-    
+
     @abstractmethod
     def is_loop_finished(self) -> bool:
         """Return True if the loop has completed all iterations."""
@@ -591,7 +702,7 @@ model_dict['gated'] = is_gated
 # Status updates for gated models
 if getattr(model_info, 'gated', False):
     self.publish_update_to_parameter(
-        "status", 
+        "status",
         "🔒 GATED MODEL - May require approval"
     )
 ```
@@ -615,7 +726,7 @@ ParameterMessage(
 class MyIterativeNode(BaseIterativeStartNode):
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
         super().__init__(name, metadata)
-        
+
         # Status message parameter for real-time updates
         self.status_message = ParameterMessage(
             name="status_message",
@@ -623,7 +734,7 @@ class MyIterativeNode(BaseIterativeStartNode):
             value="",
         )
         self.add_node_element(self.status_message)
-    
+
     def _update_status_message(self, status_type: str = "normal") -> None:
         """Update status message based on current state."""
         if self._total_iterations == 0:
@@ -634,7 +745,7 @@ class MyIterativeNode(BaseIterativeStartNode):
             status = f"Completed {self._total_iterations} (of {self._total_iterations})"
         else:
             status = f"Processing {self._current_iteration_count} (of {self._total_iterations})"
-        
+
         self.status_message.value = status
 ```
 
@@ -688,6 +799,7 @@ ui_options={"hidden": True}  # Less common, prefer "hide": True
 ```
 
 **Common Use Cases for Hidden Parameters:**
+
 - Advanced/expert configuration options
 - Internal control signals
 - Debug parameters
@@ -704,29 +816,29 @@ from griptape_nodes.exe_types.node_types import SuccessFailureNode
 class LoadImage(SuccessFailureNode):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
-        
+
         # Add status parameters using the helper method
         self._create_status_parameters(
             result_details_tooltip="Details about the image loading operation result",
             result_details_placeholder="Details on the load attempt will be presented here.",
         )
-    
+
     def process(self) -> None:
         # Reset execution state at start
         self._clear_execution_status()
-        
+
         # Clear output values to prevent stale data on errors
         self.parameter_output_values["image"] = None
-        
+
         try:
             # Processing logic here
             result = load_image()
             self.parameter_output_values["image"] = result
-            
+
             # Success case
             success_details = f"Image loaded successfully from {source}"
             self._set_status_results(was_successful=True, result_details=f"SUCCESS: {success_details}")
-            
+
         except Exception as e:
             error_details = f"Failed to load image: {e}"
             self._set_status_results(was_successful=False, result_details=f"FAILURE: {error_details}")
@@ -762,7 +874,7 @@ from griptape_nodes_library.utils.artifact_path_tethering import (
 class LoadImage(SuccessFailureNode):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
-        
+
         # Configuration for artifact tethering
         self._tethering_config = ArtifactTetheringConfig(
             dict_to_artifact_func=dict_to_image_url_artifact,
@@ -771,7 +883,7 @@ class LoadImage(SuccessFailureNode):
             default_extension="png",
             url_content_type_prefix="image/",
         )
-        
+
         # Create artifact parameter
         self.image_parameter = Parameter(
             name="image",
@@ -780,14 +892,14 @@ class LoadImage(SuccessFailureNode):
             output_type="ImageUrlArtifact",
             ui_options={"clickable_file_browser": True},
         )
-        
+
         # Create path parameter using tethering utility
         self.path_parameter = ArtifactPathTethering.create_path_parameter(
             name="path",
             config=self._tethering_config,
             display_name="File Path or URL",
         )
-        
+
         # Tethering helper keeps parameters in sync
         self._tethering = ArtifactPathTethering(
             node=self,
@@ -795,7 +907,7 @@ class LoadImage(SuccessFailureNode):
             path_parameter=self.path_parameter,
             config=self._tethering_config,
         )
-    
+
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         # Delegate tethering logic to helper
         self._tethering.on_after_value_set(parameter, value)
@@ -814,7 +926,7 @@ Use `validate_before_node_run()` for complex validation:
 def validate_before_node_run(self) -> list[Exception] | None:
     """Validate parameters before running the node."""
     exceptions = []
-    
+
     model = self.get_parameter_value("model")
     if model == "advanced":
         images = self.get_parameter_list_value("images") or []
@@ -822,7 +934,7 @@ def validate_before_node_run(self) -> list[Exception] | None:
             exceptions.append(ValueError(
                 f"{self.name}: Maximum {MAX_IMAGES} images allowed, got {len(images)}"
             ))
-    
+
     return exceptions if exceptions else None
 ```
 
@@ -835,7 +947,7 @@ def _validate_iterative_connections(self) -> list[Exception]:
     """Validate that all required connections are properly established."""
     errors = []
     node_type = self._get_base_node_type_name()
-    
+
     # Check if exec_out has outgoing connections
     if not _outgoing_connection_exists(self.name, self.exec_out.name):
         errors.append(
@@ -845,7 +957,7 @@ def _validate_iterative_connections(self) -> list[Exception]:
                 "The start node must connect to other nodes to execute the loop body."
             )
         )
-    
+
     # Check if loop has outgoing connection to End
     if self.end_node is None:
         errors.append(
@@ -855,7 +967,7 @@ def _validate_iterative_connections(self) -> list[Exception]:
                 "This establishes the explicit relationship between start and end nodes."
             )
         )
-    
+
     return errors
 ```
 
@@ -892,7 +1004,7 @@ import os
 
 def __init__(self, **kwargs):
     super().__init__(**kwargs)
-    
+
     # Safe URL construction
     base = os.getenv("API_BASE_URL", "https://api.example.com")
     base_slash = base if base.endswith("/") else base + "/"
@@ -932,12 +1044,12 @@ def _log_request(self, payload: dict[str, Any]) -> None:
     """Log request with sanitized sensitive data."""
     with suppress(Exception):
         sanitized_payload = deepcopy(payload)
-        
+
         # Truncate long prompts
         prompt = sanitized_payload.get("prompt", "")
         if len(prompt) > PROMPT_TRUNCATE_LENGTH:
             sanitized_payload["prompt"] = prompt[:PROMPT_TRUNCATE_LENGTH] + "..."
-        
+
         # Redact base64 image data
         if "image" in sanitized_payload:
             image_data = sanitized_payload["image"]
@@ -946,7 +1058,7 @@ def _log_request(self, payload: dict[str, Any]) -> None:
                 header = parts[0] if parts else "data:image/"
                 b64_len = len(parts[1]) if len(parts) > 1 else 0
                 sanitized_payload["image"] = f"{header},<base64 data length={b64_len}>"
-        
+
         self._log(f"Request: {json.dumps(sanitized_payload, indent=2)}")
 ```
 
@@ -961,14 +1073,14 @@ def _extract_image_value(self, image_input: Any) -> str | None:
     """Extract string value from various image input types."""
     if isinstance(image_input, str):
         return image_input
-    
+
     try:
         # ImageUrlArtifact: .value holds URL string
         if hasattr(image_input, "value"):
             value = getattr(image_input, "value", None)
             if isinstance(value, str):
                 return value
-        
+
         # ImageArtifact: .base64 holds raw or data-URI
         if hasattr(image_input, "base64"):
             b64 = getattr(image_input, "base64", None)
@@ -976,7 +1088,7 @@ def _extract_image_value(self, image_input: Any) -> str | None:
                 return b64
     except Exception as e:
         self._log(f"Failed to extract image value: {e}")
-    
+
     return None
 ```
 
@@ -994,10 +1106,10 @@ from io import BytesIO
 def _get_image_data(self, image_artifact: ImageArtifact | ImageUrlArtifact) -> str:
     """Convert image to API-compatible format."""
     # ... extract image_bytes ...
-    
+
     try:
         img = Image.open(BytesIO(image_bytes))
-        
+
         # Convert unsupported formats (MPO, TIFF, BMP, etc.) to JPEG
         if img.format not in ['JPEG', 'PNG', 'WEBP']:
             self._log(f"Converting {img.format} to JPEG for API compatibility")
@@ -1019,13 +1131,14 @@ def _get_image_data(self, image_artifact: ImageArtifact | ImageUrlArtifact) -> s
     except Exception as e:
         self._log(f"Could not detect image format: {e}")
         mime_type = "image/jpeg"
-    
+
     # Encode as base64 data URI
     base64_data = base64.b64encode(image_bytes).decode('utf-8')
     return f"data:{mime_type};base64,{base64_data}"
 ```
 
 **Key Points**:
+
 - Apply conversion at all image input points (ImageArtifact, ImageUrlArtifact, localhost URLs)
 - Use high quality (95%) to preserve image fidelity
 - Handle color mode conversion (MPO often uses non-RGB modes)
@@ -1041,24 +1154,24 @@ Create reusable utility functions for common operations:
 def _outgoing_connection_exists(source_node: str, source_param: str) -> bool:
     """Check if a source node/parameter has any outgoing connections."""
     from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-    
+
     connections = GriptapeNodes.FlowManager().get_connections()
     source_connections = connections.outgoing_index.get(source_node)
     if source_connections is None:
         return False
-    
+
     param_connections = source_connections.get(source_param)
     return bool(param_connections) if param_connections else False
 
 def _incoming_connection_exists(target_node: str, target_param: str) -> bool:
     """Check if a target node/parameter has any incoming connections."""
     from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-    
+
     connections = GriptapeNodes.FlowManager().get_connections()
     target_connections = connections.incoming_index.get(target_node)
     if target_connections is None:
         return False
-    
+
     param_connections = target_connections.get(target_param)
     return bool(param_connections) if param_connections else False
 ```
@@ -1072,7 +1185,7 @@ def _image_to_bytes(self, image_artifact) -> bytes:
     """Convert various image artifact types to bytes."""
     if not image_artifact:
         raise ValueError("No input image provided")
-    
+
     try:
         # Handle dictionary format (serialized artifacts)
         if isinstance(image_artifact, dict):
@@ -1084,13 +1197,13 @@ def _image_to_bytes(self, image_artifact) -> bytes:
         else:
             # Try generic to_bytes method
             image_bytes = image_artifact.to_bytes()
-        
+
         # Verify we have valid image data
         if not image_bytes or len(image_bytes) < 100:
             raise ValueError("Image data is empty or too small")
-        
+
         return image_bytes
-        
+
     except Exception as e:
         raise ValueError(f"Failed to extract image data: {str(e)}")
 ```
@@ -1108,10 +1221,7 @@ Bundle nodes into libraries for sharing. Create `griptape_nodes_library.json`:
       "description": "API keys required by nodes in this library",
       "category": "app_events.on_app_initialization_complete",
       "contents": {
-        "secrets_to_register": [
-          "MY_SERVICE_API_KEY",
-          "MY_OTHER_API_KEY"
-        ]
+        "secrets_to_register": ["MY_SERVICE_API_KEY", "MY_OTHER_API_KEY"]
       }
     }
   ],
@@ -1233,7 +1343,7 @@ from griptape.artifacts import BaseArtifact
 class CustomArtifact(BaseArtifact):
     def __init__(self, value: Any, **kwargs):
         super().__init__(value, **kwargs)
-    
+
     def to_text(self) -> str:
         return str(self.value)
 ```
@@ -1241,6 +1351,7 @@ class CustomArtifact(BaseArtifact):
 ### Advanced Lifecycle Methods
 
 #### Spotlight Control
+
 For conditional dependency resolution:
 
 ```python
@@ -1254,13 +1365,13 @@ def advance_parameter(self) -> bool:
     """Custom parameter advancement with conditional dependency resolution."""
     if self.current_spotlight_parameter is None:
         return False
-    
+
     # Special handling for conditional parameters
     if self.current_spotlight_parameter is self.evaluate:
         try:
             evaluation_result = self.check_evaluation()
             next_param = self.output_if_true if evaluation_result else self.output_if_false
-            
+
             if ParameterMode.INPUT in next_param.get_mode():
                 self.current_spotlight_parameter.next = next_param
                 next_param.prev = self.current_spotlight_parameter
@@ -1269,24 +1380,68 @@ def advance_parameter(self) -> bool:
         except Exception:
             self.current_spotlight_parameter = None
             return False
-    
+
     return super().advance_parameter()
 ```
 
 #### Control Flow Management
+
 ```python
 def get_next_control_output(self) -> Parameter | None:
     """Return the appropriate control output based on evaluation."""
     if "evaluate" not in self.parameter_output_values:
         self.stop_flow = True
         return None
-    
+
     if self.parameter_output_values["evaluate"]:
         return self.get_parameter_by_name("Then")
     return self.get_parameter_by_name("Else")
 ```
 
 ## Asynchronous API Integration
+
+### Process Method with Yield Syntax
+
+For nodes that perform long-running asynchronous operations, use the `yield` syntax to properly handle async processing:
+
+```python
+from griptape_nodes.exe_types.node_types import DataNode, AsyncResult
+
+class MyAsyncNode(DataNode):
+    def process(self) -> AsyncResult[None]:
+        """Process the request asynchronously."""
+        yield lambda: self._process()
+
+    def _process(self) -> None:
+        """Main processing method."""
+        try:
+            # Set safe defaults
+            self._set_safe_defaults()
+
+            # Validate API key
+            api_key = self._validate_api_key()
+
+            # Submit task
+            task_id = self._submit_task(api_key)
+
+            # Poll for completion
+            result = self._poll_for_completion(task_id, api_key)
+
+            # Process result
+            self.parameter_output_values["output"] = result
+
+        except Exception as e:
+            self._set_safe_defaults()
+            self._log(f"Processing failed: {e}")
+            raise RuntimeError(f"{self.name}: {str(e)}") from e
+```
+
+**Key Points:**
+
+- `process()` returns `AsyncResult[None]` and yields a lambda
+- Actual work is done in `_process()` method
+- Pattern matches Minimax and other async nodes
+- Enables proper async handling in the workflow engine
 
 ### Polling Pattern for Long-Running Tasks
 
@@ -1298,7 +1453,7 @@ When integrating with APIs that use asynchronous task processing (video generati
 def _submit_task(self, params: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
     """Submit task and return response with task_id."""
     payload = self._build_payload(params)
-    
+
     response = requests.post(
         self.API_BASE_URL,
         json=payload,
@@ -1306,7 +1461,7 @@ def _submit_task(self, params: dict[str, Any], headers: dict[str, str]) -> dict[
         timeout=DEFAULT_TIMEOUT
     )
     response.raise_for_status()
-    
+
     response_data = response.json()
     task_id = response_data.get("task_id")
     return response_data
@@ -1321,10 +1476,10 @@ MAX_POLLING_ATTEMPTS = 60  # 10 minutes max
 def _poll_for_completion(self, task_id: str, headers: dict[str, str]) -> str | None:
     """Poll API for task completion and return result identifier."""
     query_url = "https://api.example.com/v1/query/task"
-    
+
     for attempt in range(MAX_POLLING_ATTEMPTS):
         time.sleep(POLLING_INTERVAL)  # Wait before each poll
-        
+
         response = requests.get(
             query_url,
             headers=headers,
@@ -1332,12 +1487,12 @@ def _poll_for_completion(self, task_id: str, headers: dict[str, str]) -> str | N
             timeout=DEFAULT_TIMEOUT
         )
         response.raise_for_status()
-        
+
         status_data = response.json()
         status = status_data.get("status")
-        
+
         self._log(f"Polling attempt {attempt + 1}: Status = {status}")
-        
+
         if status == "Success":
             file_id = status_data.get("file_id")
             return file_id
@@ -1345,7 +1500,7 @@ def _poll_for_completion(self, task_id: str, headers: dict[str, str]) -> str | N
             error_msg = status_data.get("error_message", "Unknown error")
             raise RuntimeError(f"Task failed: {error_msg}")
         # Continue polling for "Processing", "Pending", etc.
-    
+
     raise RuntimeError(f"Task did not complete within {MAX_POLLING_ATTEMPTS * POLLING_INTERVAL} seconds")
 ```
 
@@ -1355,7 +1510,7 @@ def _poll_for_completion(self, task_id: str, headers: dict[str, str]) -> str | N
 def _retrieve_result(self, file_id: str, headers: dict[str, str]) -> str:
     """Retrieve download URL from result identifier."""
     retrieve_url = "https://api.example.com/v1/files/retrieve"
-    
+
     response = requests.get(
         retrieve_url,
         headers=headers,
@@ -1363,14 +1518,15 @@ def _retrieve_result(self, file_id: str, headers: dict[str, str]) -> str:
         timeout=DEFAULT_TIMEOUT
     )
     response.raise_for_status()
-    
+
     response_data = response.json()
     download_url = response_data.get("file", {}).get("download_url")
-    
+
     return download_url
 ```
 
 **Key Considerations:**
+
 - Always use API-recommended polling intervals (typically 5-10 seconds)
 - Set reasonable maximum attempts to prevent infinite loops
 - Use query parameters, not path parameters, for task_id (verify with API docs)
@@ -1389,47 +1545,47 @@ import base64
 
 def _get_image_data(self, image_artifact: ImageArtifact | ImageUrlArtifact) -> str:
     """Convert image artifact to URL or base64 data URI."""
-    
+
     # ImageUrlArtifact - check if localhost or public URL
     if isinstance(image_artifact, ImageUrlArtifact):
         url = image_artifact.value
-        
+
         # Localhost URLs must be converted to base64 for external APIs
-        if url.startswith(('http://localhost', 'http://127.0.0.1', 
+        if url.startswith(('http://localhost', 'http://127.0.0.1',
                           'https://localhost', 'https://127.0.0.1')):
             self._log(f"Converting localhost URL to base64: {url[:100]}...")
             response = requests.get(url, timeout=30)
             response.raise_for_status()
             image_bytes = response.content
-            
+
             # Detect MIME type from headers
             mime_type = response.headers.get('content-type', 'image/jpeg')
             if not mime_type.startswith('image/'):
                 mime_type = 'image/jpeg'
-            
+
             base64_data = base64.b64encode(image_bytes).decode('utf-8')
             return f"data:{mime_type};base64,{base64_data}"
-        
+
         # Public URLs can be passed through
         self._log(f"Using public URL: {url[:100]}...")
         return url
-    
+
     # ImageArtifact - use .base64 property (preferred method)
     if isinstance(image_artifact, ImageArtifact):
         # PREFERRED: Use built-in properties
         if hasattr(image_artifact, 'base64') and hasattr(image_artifact, 'mime_type'):
             base64_data = image_artifact.base64  # Raw base64 (no prefix)
             mime_type = image_artifact.mime_type  # e.g., 'image/jpeg'
-            
+
             # Check if already has data URI prefix
             if base64_data.startswith('data:'):
                 self._log("Using ImageArtifact.base64 (already has data URI)")
                 return base64_data
-            
+
             # Add data URI prefix
             self._log(f"Using ImageArtifact.base64 with mime_type: {mime_type}")
             return f"data:{mime_type};base64,{base64_data}"
-        
+
         # FALLBACK: Manual byte extraction
         self._log("Falling back to manual base64 encoding")
         if hasattr(image_artifact, 'value') and hasattr(image_artifact.value, 'read'):
@@ -1445,7 +1601,7 @@ def _get_image_data(self, image_artifact: ImageArtifact | ImageUrlArtifact) -> s
                 raise ValueError("Unsupported ImageArtifact format")
         else:
             raise ValueError("Unsupported ImageArtifact format")
-        
+
         # Detect MIME type with PIL
         mime_type = "image/jpeg"
         try:
@@ -1460,14 +1616,15 @@ def _get_image_data(self, image_artifact: ImageArtifact | ImageUrlArtifact) -> s
             mime_type = format_to_mime.get(img.format, 'image/jpeg')
         except Exception:
             pass
-        
+
         base64_data = base64.b64encode(image_bytes).decode('utf-8')
         return f"data:{mime_type};base64,{base64_data}"
-    
+
     raise ValueError("Unsupported artifact type")
 ```
 
 **Key Points:**
+
 1. **Always detect localhost URLs** - External APIs cannot access them
 2. **Use ImageArtifact.base64 property** - The proper Griptape way (returns raw base64)
 3. **Use ImageArtifact.mime_type property** - Automatic MIME type detection
@@ -1475,6 +1632,7 @@ def _get_image_data(self, image_artifact: ImageArtifact | ImageUrlArtifact) -> s
 5. **Download localhost files** - Convert to base64 before sending to API
 
 **Parameter Definition:**
+
 ```python
 Parameter(
     name="image_input",
@@ -1490,11 +1648,11 @@ Parameter(
 When nodes accept multiple image parameters, use a reusable validation method with clear parameter identification:
 
 ```python
-def _validate_image(self, image_artifact: ImageArtifact | ImageUrlArtifact, 
+def _validate_image(self, image_artifact: ImageArtifact | ImageUrlArtifact,
                     param_name: str) -> list[Exception]:
     """Validate image with parameter name in error messages."""
     exceptions = []
-    
+
     if isinstance(image_artifact, ImageArtifact):
         # Get image bytes
         if hasattr(image_artifact, 'value') and hasattr(image_artifact.value, 'read'):
@@ -1503,25 +1661,25 @@ def _validate_image(self, image_artifact: ImageArtifact | ImageUrlArtifact,
             image_artifact.value.seek(0)
         else:
             return exceptions
-        
+
         # Validate size
         size_mb = len(image_bytes) / (1024 * 1024)
         if size_mb >= 20:
             exceptions.append(ValueError(
                 f"{self.name}: {param_name} size must be < 20MB (current: {size_mb:.1f}MB)"
             ))
-        
+
         # Validate format and dimensions
         try:
             from PIL import Image
             from io import BytesIO
             img = Image.open(BytesIO(image_bytes))
-            
+
             if img.format not in ['JPEG', 'PNG', 'WEBP']:
                 exceptions.append(ValueError(
                     f"{self.name}: {param_name} format must be JPG, PNG, or WebP (current: {img.format})"
                 ))
-            
+
             width, height = img.size
             short_edge = min(width, height)
             if short_edge <= 300:
@@ -1532,26 +1690,27 @@ def _validate_image(self, image_artifact: ImageArtifact | ImageUrlArtifact,
             self._log("PIL not available for validation")
         except Exception as e:
             self._log(f"Error validating {param_name}: {e}")
-    
+
     return exceptions
 
 def validate_before_node_run(self) -> list[Exception] | None:
     """Validate all image parameters."""
     exceptions = []
-    
+
     # Validate each image parameter independently
     first_frame = self.get_parameter_value("first_frame_image")
     if first_frame:
         exceptions.extend(self._validate_image(first_frame, "first_frame_image"))
-    
+
     last_frame = self.get_parameter_value("last_frame_image")
     if last_frame:
         exceptions.extend(self._validate_image(last_frame, "last_frame_image"))
-    
+
     return exceptions if exceptions else None
 ```
 
 **Benefits:**
+
 - Clear error messages identifying which image parameter has issues
 - Reusable validation logic across multiple image inputs
 - Independent validation for each parameter
@@ -1568,7 +1727,7 @@ def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if value == "AdvancedModel":
             # Show model-specific parameters
             self.show_parameter_by_name("advanced_option")
-            
+
             # Update dropdown choices dynamically
             resolution_param = self.get_parameter_by_name("resolution")
             if resolution_param:
@@ -1579,7 +1738,7 @@ def after_value_set(self, parameter: Parameter, value: Any) -> None:
         else:
             # Hide and reset for other models
             self.hide_parameter_by_name("advanced_option")
-            
+
             # Update to standard choices
             resolution_param = self.get_parameter_by_name("resolution")
             if resolution_param:
@@ -1588,33 +1747,34 @@ def after_value_set(self, parameter: Parameter, value: Any) -> None:
                         child.choices = STANDARD_RESOLUTIONS
                         break
                 self.set_parameter_value("resolution", "720P")
-    
+
     return super().after_value_set(parameter, value)
 ```
 
 **Model-Specific Validation:**
+
 ```python
 def validate_before_node_run(self) -> list[Exception] | None:
     """Validate model-specific parameter combinations."""
     exceptions = []
-    
+
     model = self.get_parameter_value("model")
     duration = self.get_parameter_value("duration")
     resolution = self.get_parameter_value("resolution")
-    
+
     # Example: 10s only for specific model/resolution
     if duration == 10:
         if model != "AdvancedModel":
             exceptions.append(ValueError(f"{self.name}: 10s duration only supported by AdvancedModel"))
         elif resolution == "4K":
             exceptions.append(ValueError(f"{self.name}: 10s duration not supported with 4K resolution"))
-    
+
     # Model-specific parameter requirements
     if model in ["ModelB", "ModelC"]:
         required_param = self.get_parameter_value("required_for_model_b_c")
         if not required_param:
             exceptions.append(ValueError(f"{self.name}: Parameter required for {model}"))
-    
+
     return exceptions if exceptions else None
 ```
 
@@ -1627,7 +1787,7 @@ For nodes that integrate with external APIs, implement comprehensive debug loggi
 def _submit_task(self, params: dict, headers: dict) -> dict:
     response = requests.post(API_URL, json=payload, headers=headers)
     response.raise_for_status()
-    
+
     response_data = response.json()
     self._log(f"Task submission response: {json.dumps(response_data, indent=2)}")
     return response_data
@@ -1637,7 +1797,7 @@ def _log_request(self, payload: dict) -> None:
     if "first_frame_image" in payload:
         img_len = len(payload.get("first_frame_image", ""))
         self._log(f"first_frame_image data length: {img_len} chars (~{img_len/1024:.1f}KB)")
-    
+
     if "last_frame_image" in payload:
         img_len = len(payload.get("last_frame_image", ""))
         self._log(f"last_frame_image data length: {img_len} chars (~{img_len/1024:.1f}KB)")
@@ -1646,7 +1806,7 @@ def _log_request(self, payload: dict) -> None:
 def _poll_for_completion(self, task_id: str, headers: dict) -> str:
     status_data = response.json()
     status = status_data.get("status")
-    
+
     if status == "Fail":
         # Log complete error response for debugging
         self._log(f"Full API error response: {json.dumps(status_data, indent=2)}")
@@ -1668,6 +1828,7 @@ def _get_image_data(self, image_artifact) -> str:
 ```
 
 **What to Log:**
+
 - **Full API responses** (submission, polling, retrieval)
 - **Payload sizes** (especially for base64 data)
 - **Processing paths** (which code branches execute)
@@ -1675,6 +1836,7 @@ def _get_image_data(self, image_artifact) -> str:
 - **Error details** (full error response from API)
 
 **Benefits:**
+
 - Quickly identify where failures occur
 - Understand what data is being sent
 - Track which code paths execute
@@ -1686,6 +1848,7 @@ def _get_image_data(self, image_artifact) -> str:
 **Critical Best Practice:** Always verify API specifications directly from documentation.
 
 **Common Pitfalls to Avoid:**
+
 1. **Model Names**: Check exact capitalization (`MiniMax-Hailuo-02` not `video-01`)
 2. **Endpoints**: Verify exact URLs (`/v1/query/video_generation` not `/v1/video_generation/{id}`)
 3. **Parameters**: Check query params vs path params
@@ -1693,6 +1856,7 @@ def _get_image_data(self, image_artifact) -> str:
 5. **Polling Intervals**: Use API-recommended values
 
 **Example: Correct vs Incorrect Polling:**
+
 ```python
 # ✅ CORRECT: Query parameter
 response = requests.get(
@@ -1707,10 +1871,496 @@ response = requests.get(
 ```
 
 **When Documentation is Inaccessible:**
+
 - Explicitly state inability to access web pages (e.g., JavaScript-heavy docs)
 - Request user to provide relevant documentation sections
 - Never assume or infer API patterns without verification
 - Update implementation when code samples are provided
+
+### Library Structure with uv Dependency Management
+
+**Modern Approach**: Use `uv` for fast, reproducible dependency management following the Minimax library pattern.
+
+#### Directory Structure
+
+```
+library-name/
+├── pyproject.toml              # uv configuration
+├── uv.lock                     # Lock file (generated)
+├── LICENSE                     # License file
+├── README.md                   # Documentation
+├── CHANGELOG.md                # Version history
+├── .gitignore                  # Ignore rules
+└── library_name/
+    ├── griptape_nodes_library.json  # Library metadata
+    └── node_file.py
+```
+
+#### pyproject.toml Configuration
+
+```toml
+[project]
+name = "library-name"
+version = "1.0.0"
+description = "Description of your library"
+authors = [
+    {name = "Your Name", email = "email@example.com"}
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "griptape-nodes",
+    "requests",
+    # Add other dependencies
+]
+
+[tool.uv.sources]
+griptape-nodes = { git = "https://github.com/griptape-ai/griptape-nodes", rev="latest"}
+
+[tool.hatch.build.targets.wheel]
+packages = ["library_name"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+```
+
+#### Library Configuration (inside subdirectory)
+
+Place `griptape_nodes_library.json` inside the library subdirectory:
+
+```json
+{
+  "name": "Library Name",
+  "library_schema_version": "0.1.0",
+  "settings": [
+    {
+      "description": "API keys required by nodes",
+      "category": "app_events.on_app_initialization_complete",
+      "contents": {
+        "secrets_to_register": ["API_KEY_NAME"]
+      }
+    }
+  ],
+  "nodes": [
+    {
+      "class_name": "NodeClassName",
+      "file_path": "node_file.py", // Relative to library subdirectory
+      "metadata": {
+        "category": "category_name",
+        "description": "Node description",
+        "display_name": "Node Display Name"
+      }
+    }
+  ]
+}
+```
+
+#### Installation Instructions in README
+
+Provide both uv (recommended) and pip (fallback) installation methods:
+
+````markdown
+## Installation
+
+### Option 1: Using uv (Recommended)
+
+1. Clone or download this library
+2. Install dependencies:
+   ```bash
+   cd library-name
+   uv sync
+   ```
+````
+
+3. Place in Griptape Nodes libraries directory
+
+### Option 2: Automatic Installation
+
+1. Place folder in libraries directory
+2. Dependencies install automatically via pip
+
+````
+
+#### Generate Lock File
+
+```bash
+cd library-name
+uv sync
+````
+
+**Benefits:**
+
+- Fast installation (Rust-based)
+- Reproducible builds via lock file
+- Direct GitHub integration for griptape-nodes
+- Backward compatible with pip installation
+
+### Two-Mode UI Pattern (Simple + Custom)
+
+**Use Case**: Create beginner-friendly nodes while offering advanced control for power users.
+
+**Example**: Music/video generation APIs often have "simple description" mode and "detailed control" mode.
+
+#### Implementation Pattern
+
+```python
+class GenerativeNode(DataNode):
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+
+        # Mode selector
+        mode_param = Parameter(
+            name="custom_mode",
+            input_types=["bool"],
+            type="bool",
+            default_value=False,
+            tooltip="Custom Mode: Full control. Simple Mode: Auto-generate from prompt.",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            ui_options={"display_name": "Custom Mode"},
+        )
+        self.add_parameter(mode_param)
+
+        # Prompt (meaning changes by mode)
+        prompt_param = Parameter(
+            name="prompt",
+            input_types=["str"],
+            type="str",
+            default_value="",
+            tooltip=[
+                {"type": "text", "text": "Custom Mode: Exact lyrics/script"},
+                {"type": "text", "text": "Simple Mode: General description"},
+            ],
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            ui_options={"multiline": True, "display_name": "Prompt"},
+        )
+        self.add_parameter(prompt_param)
+
+        # Advanced parameters (custom mode only)
+        style_param = Parameter(
+            name="style",
+            input_types=["str"],
+            type="str",
+            default_value="",
+            tooltip="Style/genre (Custom Mode only)",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            ui_options={"hide": True},  # Hidden by default
+        )
+        self.add_parameter(style_param)
+
+        title_param = Parameter(
+            name="title",
+            input_types=["str"],
+            type="str",
+            default_value="",
+            tooltip="Title (Custom Mode only)",
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            ui_options={"hide": True},  # Hidden by default
+        )
+        self.add_parameter(title_param)
+
+        # Initialize visibility
+        self._initialize_parameter_visibility()
+
+    def _initialize_parameter_visibility(self) -> None:
+        """Initialize parameter visibility based on default mode."""
+        custom_mode = self.get_parameter_value("custom_mode") or False
+        if custom_mode:
+            self.show_parameter_by_name("style")
+            self.show_parameter_by_name("title")
+        else:
+            self.hide_parameter_by_name("style")
+            self.hide_parameter_by_name("title")
+
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        """Update UI based on mode selection."""
+        if parameter.name == "custom_mode":
+            if value:
+                self.show_parameter_by_name("style")
+                self.show_parameter_by_name("title")
+            else:
+                self.hide_parameter_by_name("style")
+                self.hide_parameter_by_name("title")
+
+        return super().after_value_set(parameter, value)
+
+    def validate_before_node_run(self) -> list[Exception] | None:
+        """Validate based on selected mode."""
+        exceptions = []
+        custom_mode = self.get_parameter_value("custom_mode")
+
+        if custom_mode:
+            # Custom mode requires style and title
+            style = self.get_parameter_value("style") or ""
+            title = self.get_parameter_value("title") or ""
+
+            if not style.strip():
+                exceptions.append(ValueError(f"{self.name}: Style required in Custom Mode"))
+            if not title.strip():
+                exceptions.append(ValueError(f"{self.name}: Title required in Custom Mode"))
+        else:
+            # Simple mode just needs prompt
+            prompt = self.get_parameter_value("prompt") or ""
+            if not prompt.strip():
+                exceptions.append(ValueError(f"{self.name}: Prompt required in Simple Mode"))
+
+        return exceptions if exceptions else None
+```
+
+**Best Practice for First-Time Users**: Default to Simple Mode with recommendation in documentation:
+
+```markdown
+### Getting Started
+
+#### Simple Mode (Recommended for First-Time Users)
+
+1. Leave "Custom Mode" unchecked
+2. Enter a description: "A calm piano melody"
+3. Run!
+
+#### Custom Mode (Advanced)
+
+1. Check "Custom Mode"
+2. Fill in style, title, and detailed prompt
+3. Fine-tune advanced parameters
+```
+
+### Music/Audio Generation API Patterns
+
+#### Character Limits by Model
+
+Many generation APIs have model-specific character limits. Store limits as class constants:
+
+```python
+class MusicGenerationNode(DataNode):
+    # Prompt length limits by model
+    PROMPT_LIMITS_CUSTOM = {
+        "V3_5": 3000,
+        "V4": 3000,
+        "V4_5": 5000,
+        "V5": 5000,
+    }
+    PROMPT_LIMIT_SIMPLE = 500
+
+    # Style length limits by model
+    STYLE_LIMITS = {
+        "V3_5": 200,
+        "V4": 200,
+        "V4_5": 1000,
+        "V5": 1000,
+    }
+
+    TITLE_LIMIT = 80
+
+    def validate_before_node_run(self) -> list[Exception] | None:
+        """Validate with model-specific limits."""
+        exceptions = []
+        model = self.get_parameter_value("model")
+        custom_mode = self.get_parameter_value("custom_mode")
+
+        if custom_mode:
+            prompt = self.get_parameter_value("prompt") or ""
+            prompt_limit = self.PROMPT_LIMITS_CUSTOM.get(model, 3000)
+            if len(prompt) > prompt_limit:
+                exceptions.append(ValueError(
+                    f"{self.name}: Prompt exceeds {prompt_limit} character limit for {model} "
+                    f"(current: {len(prompt)} characters)"
+                ))
+
+            style = self.get_parameter_value("style") or ""
+            style_limit = self.STYLE_LIMITS.get(model, 200)
+            if len(style) > style_limit:
+                exceptions.append(ValueError(
+                    f"{self.name}: Style exceeds {style_limit} character limit for {model} "
+                    f"(current: {len(style)} characters)"
+                ))
+
+        return exceptions if exceptions else None
+```
+
+#### Model Selection with Detailed Tooltips
+
+Use list of dict tooltip format for model comparison:
+
+```python
+model_param = Parameter(
+    name="model",
+    input_types=["str"],
+    type="str",
+    default_value="V5",
+    tooltip=[
+        {"type": "text", "text": "Model version for generation:"},
+        {"type": "text", "text": "• V5: Superior quality, fastest (4 min max)"},
+        {"type": "text", "text": "• V4_5PLUS: Richest sound, up to 8 min"},
+        {"type": "text", "text": "• V4_5: Superior blending, up to 8 min"},
+        {"type": "text", "text": "• V4: Best quality, refined structure (4 min)"},
+        {"type": "text", "text": "• V3_5: Creative diversity (4 min)"},
+    ],
+    allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+)
+model_param.add_trait(Options(choices=["V5", "V4_5PLUS", "V4_5", "V4", "V3_5"]))
+```
+
+#### Dual Track Output Pattern
+
+APIs that generate multiple variations:
+
+```python
+# Output parameter for multiple tracks
+music_urls_param = Parameter(
+    name="music_urls",
+    output_type="list[str]",
+    type="list[str]",
+    tooltip="Download URLs for generated tracks (2 variations)",
+    allowed_modes={ParameterMode.OUTPUT},
+    settable=False,
+    ui_options={"is_full_width": True, "display_name": "Music URLs"},
+)
+self.add_parameter(music_urls_param)
+
+def process(self) -> None:
+    # ... generation logic ...
+    urls = self._extract_music_urls(response_data)
+    self.parameter_output_values["music_urls"] = urls
+
+    # Build detailed result
+    result_lines = [
+        f"✓ Generated {len(urls)} track variation(s)",
+        "",
+        "Music URLs:",
+    ]
+    for i, url in enumerate(urls, 1):
+        result_lines.append(f"{i}. {url}")
+
+    self.parameter_output_values["result_details"] = "\n".join(result_lines)
+```
+
+#### Status Updates During Long Operations
+
+Update status parameter in real-time during polling:
+
+```python
+def _poll_for_completion(self, task_id: str, api_key: str) -> dict[str, Any]:
+    """Poll API with real-time status updates."""
+    for attempt in range(self.MAX_POLLING_ATTEMPTS):
+        time.sleep(self.POLLING_INTERVAL)
+
+        # Update status parameter with progress
+        status_msg = f"Generating... ({attempt + 1}/{self.MAX_POLLING_ATTEMPTS})"
+        self.set_parameter_value("status", status_msg)
+
+        response = requests.get(query_url, headers=headers, params={"ids": task_id})
+        # ... check completion ...
+```
+
+**Best Practice**: Always provide progress feedback for operations longer than 10 seconds.
+
+### Documentation Patterns for Node Libraries
+
+#### Comprehensive README Structure
+
+```markdown
+# Library Name
+
+Brief description and key features.
+
+## Features
+
+- Bullet list of main capabilities
+- Include model options
+- Highlight unique features
+
+## Installation
+
+### Option 1: Using uv (Recommended)
+
+Steps for uv installation
+
+### Option 2: Automatic Installation
+
+Steps for pip installation
+
+## Getting Started
+
+### Simple Mode (Recommended for First-Time Users)
+
+Minimal example with explanations
+
+### Custom Mode (Advanced)
+
+Advanced example showing all features
+
+## Parameters
+
+### Basic Parameters
+
+Table with Name, Type, Description
+
+### Advanced Parameters (Hidden by Default)
+
+Table with Name, Type, Default, Description
+
+### Output Parameters
+
+Table with outputs
+
+## Model Comparison
+
+Table comparing models:
+| Model | Max Duration | Quality | Speed | Character Limits |
+
+## Character Limits
+
+Clear tables showing limits by model/mode
+
+## API Rate Limits
+
+Document:
+
+- Concurrency limits
+- Generation time expectations
+- File retention policies
+
+## Example Workflows
+
+3-5 complete examples covering common use cases
+
+## Error Handling
+
+Common errors and solutions
+
+## Troubleshooting
+
+FAQ-style troubleshooting guide
+
+## API Reference
+
+Link to official API docs
+
+## Best Practices
+
+Tips for optimal usage
+
+## Support
+
+Where to get help
+
+## Version History
+
+Link to CHANGELOG
+```
+
+#### Model Comparison Table
+
+Always include a comparison table for services with multiple models:
+
+```markdown
+| Model | Max Duration | Quality  | Speed   | Character Limits          |
+| ----- | ------------ | -------- | ------- | ------------------------- |
+| V5    | 4 min        | Superior | Fastest | Prompt: 5000, Style: 1000 |
+| V4_5  | 8 min        | High     | Fast    | Prompt: 5000, Style: 1000 |
+| V4    | 4 min        | Best     | Medium  | Prompt: 3000, Style: 200  |
+```
 
 ---
 
