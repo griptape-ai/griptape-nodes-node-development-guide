@@ -126,24 +126,114 @@ All Parameter attributes:
 - **ui_options**: dict for UI customization
 - **converters**: list[Callable[[Any], Any]] for value transformation
 - **validators**: list[Callable[[Parameter, Any], None]] for validation
+- **hide/hide_label/hide_property**: common UI flags (also available via `ui_options`; `ui_options` wins on conflict)
+- **allow_input/allow_property/allow_output**: convenience flags for configuring modes (ignored if `allowed_modes` is explicitly set)
 - **settable**: bool (default True) - False for computed/output parameters
+- **serializable**: bool (default True) - set False for non-serializable values (drivers, file handles, etc.)
 - **user_defined**: bool (default False)
+- **private**: bool (default False) - hide from general user editing (library/internal use)
 - **parent_container_name**: str|None for grouping
 
 ### Traits
 
 Add functionality via `add_trait()`:
 
-- **Options**: `Options(choices=list[str]|list[tuple[str,Any]])`
-- **Slider**: `Slider(min_val:int|float, max_val:int|float)`
-- **Button**: `Button(button_type:str)` (e.g., "save", "open", "action")
+- **Options**: `Options(choices=list[str] | list[tuple[str, Any]], show_search: bool = True, search_filter: str = "")`
+- **Slider**: `Slider(min_val: float, max_val: float)`
+- **Button**: `Button(label: str = "", variant=..., size=..., button_link=... | on_click=..., get_button_state=...)`
 - **ColorPicker**: `ColorPicker(format="hex")`
+- **FileSystemPicker**: `FileSystemPicker(...)` (file/directory selection UI)
+
+### Parameter helper constructs (`ParameterString`, `ParameterInt`, ...)
+
+Griptape Nodes includes a set of convenience Parameter subclasses under `griptape_nodes.exe_types.param_types.*`.
+They exist to make common parameter patterns **simple, consistent, and runtime-mutable** (many expose UI options as Python properties).
+
+#### Quick reference table
+
+| Helper | Enforced `type` / `output_type` | Default `input_types` behavior | Key UI convenience args | Notes |
+| ------ | ------------------------------- | ----------------------------- | ----------------------- | ----- |
+| `ParameterString` | `"str"` / `"str"` | `accept_any=True` → `["any"]` with converter to `str` | `markdown`, `multiline`, `placeholder_text`, `is_full_width` | `type`, `output_type`, and `input_types` constructor args are ignored |
+| `ParameterBool` | `"bool"` / `"bool"` | `accept_any=True` → `["any"]` with converter to `bool` | `on_label`, `off_label` | Converts common strings like `"true"/"false"`, `"yes"/"no"` |
+| `ParameterInt` | `"int"` / `"int"` | `accept_any=True` → `["any"]` with converter to `int` | `step`, `slider`, `min_val`, `max_val`, `validate_min_max` | Adds constraint traits (Clamp/MinMax/Slider) based on args |
+| `ParameterFloat` | `"float"` / `"float"` | `accept_any=True` → `["any"]` with converter to `float` | `step`, `slider`, `min_val`, `max_val`, `validate_min_max` | Adds constraint traits (Clamp/MinMax/Slider) based on args |
+| `ParameterDict` | `"dict"` / `"dict"` | `accept_any=True` → `["any"]` with converter to `dict` | (none) | Uses `griptape_nodes.utils.dict_utils.to_dict()` for conversion |
+| `ParameterJson` | `"json"` / `"json"` | `accept_any=True` → `["any"]` with converter to JSON | `button`, `button_label`, `button_icon` | Uses `json_repair.repair_json()` for robust string → JSON |
+| `ParameterRange` | `"list"` / `"list"` | `accept_any=True` → `["any"]` with converter to `list` | `range_slider` + `min_val/max_val/step`, labels | Range slider is only meaningful when the value is a 2-number list |
+| `ParameterImage` | `"ImageUrlArtifact"` / `"ImageUrlArtifact"` | `accept_any=True` → `["any"]` (no conversion) | `clickable_file_browser`, `webcam_capture_image`, `edit_mask`, `pulse_on_run` | Mostly UI convenience; add converters if you need type coercion |
+| `ParameterAudio` | `"AudioUrlArtifact"` / `"AudioUrlArtifact"` | `accept_any=True` → `["any"]` (no conversion) | `clickable_file_browser`, `microphone_capture_audio`, `edit_audio`, `pulse_on_run` | Mostly UI convenience; add converters if you need type coercion |
+| `ParameterVideo` | `"VideoUrlArtifact"` / `"VideoUrlArtifact"` | `accept_any=True` → `["any"]` (no conversion) | `clickable_file_browser`, `webcam_capture_video`, `edit_video`, `pulse_on_run` | Mostly UI convenience; add converters if you need type coercion |
+| `Parameter3D` | `"ThreeDUrlArtifact"` / `"ThreeDUrlArtifact"` | `accept_any=True` → `["any"]` (no conversion) | `clickable_file_browser`, `expander`, `pulse_on_run` | Mostly UI convenience; add converters if you need type coercion |
+| `ParameterButton` | `"button"` / `"str"` | `["str", "any"]` | `label`, `variant`, `size`, `icon`, `state`, `href` / `on_click` | **Label is display text; `default_value` is stored value** |
+
+#### Shared behavior across helpers
+
+- All helpers forward the standard `Parameter` constructor knobs (`allowed_modes` or `allow_input/allow_property/allow_output`, `hide/hide_label/hide_property`, `settable`, `serializable`, etc.).
+- Many helpers default `accept_any=True`. When enabled, the helper typically sets `input_types=["any"]` and prepends a converter (e.g. `ParameterString` converts any input to `str`). Turn this off if you want strict typing.
+- If you provide both an explicit convenience parameter (e.g. `hide=True`) and the same key in `ui_options` (e.g. `ui_options={"hide": False}`), **`ui_options` wins** and Griptape Nodes will warn about the conflict.
+
+#### Detailed helper notes
+
+##### `ParameterString`
+
+- Enforces `type="str"` and `output_type="str"`.
+- `accept_any=True` converts `None` → `""` and otherwise uses `str(value)`.
+- UI convenience: `markdown`, `multiline`, `placeholder_text`, `is_full_width` (all are runtime-settable properties).
+
+##### `ParameterBool`
+
+- Enforces `type="bool"` and `output_type="bool"`.
+- `accept_any=True` converts common string representations (e.g. `"true"`, `"yes"`, `"on"`, `"1"`) to `True` and (`"false"`, `"no"`, `"off"`, `"0"`) to `False`.
+- UI convenience: `on_label`, `off_label` (runtime-settable properties).
+
+##### `ParameterInt` / `ParameterFloat` (via `ParameterNumber`)
+
+- Enforces numeric `type` / `output_type` and can prepend a converter when `accept_any=True`.
+- `step`: stored in `ui_options["step"]` and validated (value must be a multiple of the current step).
+- `slider`, `min_val`, `max_val`, `validate_min_max`: adds one of these constraint traits based on priority:
+  - `Slider(min_val, max_val)` if `slider=True`
+  - `MinMax(min_val, max_val)` if `validate_min_max=True`
+  - `Clamp(min_val, max_val)` if `min_val` and `max_val` are provided
+
+##### `ParameterJson`
+
+- Enforces `type="json"` and `output_type="json"`.
+- `accept_any=True` attempts to repair/parse JSON strings using `json_repair.repair_json()` (and will also attempt to stringify non-string inputs).
+- UI convenience: optional editor button (`button`, `button_label`, `button_icon`).
+
+##### `ParameterDict`
+
+- Enforces `type="dict"` and `output_type="dict"`.
+- `accept_any=True` uses `to_dict(...)` to coerce common inputs into a dict.
+
+##### `ParameterRange`
+
+- Enforces `type="list"` and `output_type="list"`.
+- `accept_any=True` coerces `None` → `[]`, list → list, and any other value → `[value]`.
+- UI convenience: `range_slider` (a nested `ui_options["range_slider"]` object) with `min_val/max_val/step` and label visibility options.
+- The range slider UI is only applicable when the value is a list of exactly two numeric values.
+
+##### `ParameterImage` / `ParameterAudio` / `ParameterVideo` / `Parameter3D`
+
+- Enforce their corresponding `*UrlArtifact` `type` / `output_type`.
+- These helpers primarily provide UI options (file browser / capture / editing / expanders). If you need coercion from e.g. `str` → artifact, supply `converters` and/or handle it in your node’s `before_value_set()` / `process()` logic.
+
+##### `ParameterButton`
+
+- Enforces `type="button"` and `output_type="str"`. By default, it’s a **property-only** UI element (`allow_property=True`, `allow_input=False`, `allow_output=False`).
+- You can provide either `href="..."` (simple link) or `on_click=...` (custom callback); `label` is display text and is independent from `default_value` (stored value).
 
 ### Containers
 
-- **ParameterList**: For multiple inputs of the same type
-- **ParameterDictionary**: For key-value parameter collections
+- **ParameterList**: A container parameter that owns multiple child `Parameter` items (use `get_parameter_list_value()` to flatten values)
+- **ParameterDictionary**: A container parameter that owns ordered key/value pairs (distinct from `ParameterDict`, which is a `dict`-typed value parameter helper)
 - **ParameterGroup**: For UI grouping
+
+**Container semantics (important):**
+
+- Container parameters are represented as `ParameterContainer` objects in the engine. They are **always truthy**, even when empty (they override `__bool__()` to avoid bugs with stale cached values).
+- `ParameterList` supports several UI convenience options (e.g. `collapsed`, grid display, and column count) that are merged into `ui_options` at runtime.
+- `ParameterDictionary` is an ordered collection of key/value pair children (internally represented as a list to preserve order).
 
 ### ParameterList Pattern
 
@@ -161,7 +251,7 @@ self.add_parameter(
 )
 
 # Retrieve in process method
-tools = self.get_parameter_list_value("tools")  # Always returns list
+tools = self.get_parameter_list_value("tools")  # Always returns a list
 for tool in tools:
     # Process each tool
 ```
@@ -172,6 +262,9 @@ for tool in tools:
 - Automatic aggregation of inputs
 - Flexible workflow design
 - Follows Griptape design patterns
+
+**Important behavior note:** `get_parameter_list_value()` flattens nested iterables and **drops falsey items**
+(e.g. `0`, `False`, `""`, empty dicts/lists). If you need to preserve falsey values, use `get_parameter_value()` and handle flattening yourself.
 
 ### Common Parameter Patterns
 
@@ -252,14 +345,19 @@ def after_value_set(self, parameter: Parameter, value: Any) -> None:
 Update parameter choices at runtime:
 
 ```python
+from griptape_nodes.traits.options import Options
+
 def _update_option_choices(self, param_name: str, choices: list, default_value: str):
     """Update Options trait choices dynamically."""
     param = self.get_parameter_by_name(param_name)
-    if param and param.traits:
-        for trait in param.traits:
-            if hasattr(trait, 'choices'):
-                trait.choices = choices
-                break
+    if not param:
+        return
+
+    # Traits are stored as child elements on the Parameter
+    # (most commonly, you'll be updating an Options trait)
+    for trait in param.find_elements_by_type(Options):
+        trait.choices = choices
+        break
     self.set_parameter_value(param_name, default_value)
 ```
 
@@ -471,7 +569,29 @@ def process_bbox(self, bbox: BoundingBox):
 - Use consistent indentation (spaces only, no tabs)
 - Keep lines under 120 characters when possible
 - Use descriptive variable names
-- **Do NOT create `__init__.py` files** - they are not needed and should not be used
+- Avoid adding unnecessary Python packaging scaffolding. Create `__init__.py` files only when you actually want a package (or need them for your chosen packaging approach).
+
+#### Pre-commit checks (required)
+
+Before committing in `griptape-nodes`, run formatting and checks and fix any errors:
+
+```bash
+make format
+make check/lint
+make check/types
+```
+
+#### Node docs + navigation
+
+When adding a new node to the core library, also add node reference documentation:
+
+- Create a docs page at: `docs/nodes/<category>/<node>.md`
+- Add it to `mkdocs.yml` under: `nav -> Nodes Reference -> <Category>`
+
+#### Common gotchas
+
+- Repo-wide lint/type checks can surface issues in **untracked** files too. Avoid leaving untracked folders/files in the repo (for example, copied scratch folders) when running checks or preparing a PR.
+- If ruff flags function complexity (e.g., `C901`, `PLR0912`), prefer refactoring into smaller helpers over suppressing.
 
 ## Advanced Topics
 
@@ -647,23 +767,26 @@ Create abstract base classes for related nodes to share common functionality:
 from abc import abstractmethod
 from typing import Any
 
-class BaseIterativeStartNode(StartLoopNode):
-    """Base class for all iterative start nodes (ForEach, ForLoop, etc.)."""
+from griptape_nodes.exe_types.base_iterative_nodes import BaseIterativeStartNode
 
-    def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
-        super().__init__(name, metadata)
-        self._current_iteration_count = 0
-        self._total_iterations = 0
+class BaseCustomIterativeStartNode(BaseIterativeStartNode):
+    """Base class for a family of custom iterative start nodes."""
 
-        # Common parameters for all iterative nodes
-        self.index_count = Parameter(
-            name="index",
-            tooltip="Current index of the iteration",
-            type=ParameterTypeBuiltin.INT.value,
-            allowed_modes={ParameterMode.PROPERTY, ParameterMode.OUTPUT},
-            settable=False,
-            default_value=0,
-        )
+    @abstractmethod
+    def _get_compatible_end_classes(self) -> set[type]:
+        """Return the set of End node classes that this Start node can connect to."""
+
+    @abstractmethod
+    def _get_parameter_group_name(self) -> str:
+        """Return the name for the parameter group containing iteration data."""
+
+    @abstractmethod
+    def _get_exec_out_display_name(self) -> str:
+        """Return the display name for the exec_out parameter."""
+
+    @abstractmethod
+    def _get_exec_out_tooltip(self) -> str:
+        """Return the tooltip for the exec_out parameter."""
 
     @abstractmethod
     def _get_iteration_items(self) -> list[Any]:
@@ -1291,8 +1414,9 @@ from griptape_nodes.exe_types.core_types import (
 )
 from griptape_nodes.exe_types.node_types import (
     DataNode, ControlNode, BaseNode, SuccessFailureNode,
-    StartLoopNode, EndLoopNode
+    StartNode, EndNode
 )
+from griptape_nodes.exe_types.base_iterative_nodes import BaseIterativeStartNode, BaseIterativeEndNode
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
 from griptape_nodes.traits.color_picker import ColorPicker
@@ -1322,7 +1446,7 @@ from griptape_nodes_library.utils.file_utils import generate_filename
 
 - **NodeResolutionState**: UNRESOLVED, RESOLVING, RESOLVED
 - **ParameterMode**: INPUT, OUTPUT, PROPERTY
-- **ParameterTypeBuiltin**: STR("str"), BOOL("bool"), INT("int"), FLOAT("float"), ANY("any"), NONE("none"), ALL("all")
+- **ParameterTypeBuiltin**: STR("str"), BOOL("bool"), INT("int"), FLOAT("float"), ANY("any"), NONE("none"), CONTROL_TYPE("parametercontroltype"), ALL("all")
 
 ### Advanced Node Types
 
@@ -1330,7 +1454,7 @@ from griptape_nodes_library.utils.file_utils import generate_filename
 - **DataNode**: For data processing without execution flow
 - **ControlNode**: For nodes that manage execution flow
 - **SuccessFailureNode**: For operations that can succeed or fail
-- **StartLoopNode/EndLoopNode**: For iterative operations
+- **BaseIterativeStartNode/BaseIterativeEndNode**: For iterative operations
 - **AsyncResult**: For asynchronous processing operations
 
 ### Custom Artifacts
@@ -1408,7 +1532,7 @@ For nodes that perform long-running asynchronous operations, use the `yield` syn
 from griptape_nodes.exe_types.node_types import DataNode, AsyncResult
 
 class MyAsyncNode(DataNode):
-    def process(self) -> AsyncResult[None]:
+    def process(self) -> AsyncResult | None:
         """Process the request asynchronously."""
         yield lambda: self._process()
 
@@ -1438,7 +1562,7 @@ class MyAsyncNode(DataNode):
 
 **Key Points:**
 
-- `process()` returns `AsyncResult[None]` and yields a lambda
+- `process()` returns `AsyncResult | None` and yields a lambda
 - Actual work is done in `_process()` method
 - Pattern matches Minimax and other async nodes
 - Enables proper async handling in the workflow engine
