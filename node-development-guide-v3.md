@@ -213,10 +213,131 @@ They exist to make common parameter patterns **simple, consistent, and runtime-m
 - UI convenience: `range_slider` (a nested `ui_options["range_slider"]` object) with `min_val/max_val/step` and label visibility options.
 - The range slider UI is only applicable when the value is a list of exactly two numeric values.
 
-##### `ParameterImage` / `ParameterAudio` / `ParameterVideo` / `Parameter3D`
+##### `ParameterImage` (Recommended for Image Parameters)
 
-- Enforce their corresponding `*UrlArtifact` `type` / `output_type`.
-- These helpers primarily provide UI options (file browser / capture / editing / expanders). If you need coercion from e.g. `str` → artifact, supply `converters` and/or handle it in your node’s `before_value_set()` / `process()` logic.
+**Always use `ParameterImage` instead of generic `Parameter` for image inputs/outputs.** It provides:
+
+- Automatic `type="ImageUrlArtifact"` and `output_type="ImageUrlArtifact"`
+- Built-in UI options for file browser, webcam capture, and mask editing
+- Consistent behavior across all image-handling nodes
+
+**Basic Usage:**
+
+```python
+from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
+
+# Input image parameter
+self.add_parameter(
+    ParameterImage(
+        name="input_image",
+        tooltip="Input image for processing",
+        allow_output=False,  # Input only
+    )
+)
+
+# Output image parameter
+self.add_parameter(
+    ParameterImage(
+        name="output_image",
+        tooltip="Generated image result",
+        allow_input=False,   # Output only
+        allow_property=False,
+    )
+)
+```
+
+**Available UI Options:**
+
+- `clickable_file_browser`: Enable file browser for image selection
+- `webcam_capture_image`: Enable webcam capture
+- `edit_mask`: Enable mask editing overlay
+- `pulse_on_run`: Visual feedback when image updates
+
+**Dynamic Visibility Pattern:**
+
+For parameters that should only appear for certain model types:
+
+```python
+def __init__(self, **kwargs) -> None:
+    super().__init__(**kwargs)
+    
+    # Add image parameter (hidden by default)
+    self.add_parameter(
+        ParameterImage(
+            name="input_image",
+            tooltip="Input image for image-to-image generation",
+            allow_output=False,
+        )
+    )
+    
+    # Initialize visibility based on default model
+    self._initialize_parameter_visibility()
+
+def _initialize_parameter_visibility(self) -> None:
+    """Initialize parameter visibility based on default model."""
+    model = self.get_parameter_value("model") or "default"
+    if model in ["model-with-image-support", "another-model"]:
+        self.show_parameter_by_name("input_image")
+    else:
+        self.hide_parameter_by_name("input_image")
+
+def after_value_set(self, parameter: Parameter, value: Any) -> None:
+    """Update visibility when model changes."""
+    if parameter.name == "model":
+        if value in ["model-with-image-support", "another-model"]:
+            self.show_parameter_by_name("input_image")
+        else:
+            self.hide_parameter_by_name("input_image")
+            self.set_parameter_value("input_image", None)  # Clear when hiding
+    
+    return super().after_value_set(parameter, value)
+```
+
+**Why Use `ParameterImage` Over Generic `Parameter`:**
+
+| Aspect | Generic `Parameter` | `ParameterImage` |
+|--------|---------------------|------------------|
+| Type safety | Manual `type`/`input_types` setup | Automatic artifact types |
+| UI features | Manual `ui_options` configuration | Built-in file browser, webcam, mask editing |
+| Consistency | Varies by implementation | Standardized across nodes |
+| Maintenance | More boilerplate code | Less code, cleaner |
+
+**Legacy Pattern (Avoid):**
+
+```python
+# ❌ Don't do this - use ParameterImage instead
+self.add_parameter(
+    Parameter(
+        name="input_image",
+        input_types=["ImageArtifact", "ImageUrlArtifact", "str"],
+        type="ImageArtifact",
+        default_value=None,
+        tooltip="Input image",
+        allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        ui_options={"display_name": "Input Image"},
+    )
+)
+```
+
+**Recommended Pattern:**
+
+```python
+# ✅ Use ParameterImage for cleaner, more maintainable code
+self.add_parameter(
+    ParameterImage(
+        name="input_image",
+        tooltip="Input image",
+        allow_output=False,
+    )
+)
+```
+
+##### `ParameterAudio` / `ParameterVideo` / `Parameter3D`
+
+- Enforce their corresponding `*UrlArtifact` `type` / `output_type` (e.g., `AudioUrlArtifact`, `VideoUrlArtifact`, `ThreeDUrlArtifact`).
+- These helpers primarily provide UI options (file browser / capture / editing / expanders). If you need coercion from e.g. `str` → artifact, supply `converters` and/or handle it in your node's `before_value_set()` / `process()` logic.
+- Follow the same patterns as `ParameterImage` for these media types.
+
 
 ##### `ParameterButton`
 
