@@ -20,7 +20,8 @@
 16. [Two-Mode UI Pattern (Simple + Custom)](#two-mode-ui-pattern-simple--custom)
 17. [Music/Audio Generation API Patterns](#musicaudio-generation-api-patterns)
 18. [Documentation Patterns for Node Libraries](#documentation-patterns-for-node-libraries)
-19. [Appendix](#appendix)
+19. [Contributing to the Standard Library](#contributing-to-the-standard-library)
+20. [Appendix](#appendix)
 
 ## Introduction
 
@@ -506,6 +507,163 @@ self.add_parameter(
 )
 ```
 
+### Controlling Parameter Order in the UI
+
+Parameters appear in the UI in the order they are added via `add_parameter()`. This matters for user experience - related parameters should be grouped logically.
+
+**Problem**: Base classes like `BaseImageProcessor` automatically add parameters (e.g., `input_image`) in their `__init__`, which may not be the order you want.
+
+**Solution**: Extend `SuccessFailureNode` directly instead of `BaseImageProcessor` to gain full control over parameter ordering:
+
+```python
+from griptape_nodes.exe_types.node_types import SuccessFailureNode
+from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
+
+class ColorMatch(SuccessFailureNode):
+    """Transfer colors from a reference image to a target image."""
+
+    def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
+        super().__init__(name, metadata)
+
+        # Reference image FIRST - the source of the color palette
+        self.add_parameter(
+            ParameterImage(
+                name="reference_image",
+                tooltip="Reference image - the source of the color palette to transfer",
+                ui_options={"clickable_file_browser": True, "expander": True},
+            )
+        )
+
+        # Target image SECOND - the image to modify
+        self.add_parameter(
+            ParameterImage(
+                name="target_image",
+                tooltip="Target image - the image to apply the color transfer to",
+                ui_options={"clickable_file_browser": True, "expander": True},
+            )
+        )
+
+        # Additional parameters in desired order...
+```
+
+**When to Use This Pattern**:
+
+- Two-image nodes where the semantic order matters (reference → target)
+- Nodes requiring specific parameter groupings not provided by base classes
+- When base class parameter order conflicts with your UX goals
+
+**Trade-off**: You lose helper methods from specialized base classes, but gain complete control over the node's UI structure.
+
+### Two-Image Processing Node Pattern
+
+For nodes that process two images together (blending, color matching, compositing), use this pattern:
+
+```python
+from typing import Any, ClassVar
+from PIL import Image
+
+from griptape.artifacts import ImageUrlArtifact
+from griptape_nodes.exe_types.core_types import Parameter
+from griptape_nodes.exe_types.node_types import SuccessFailureNode
+from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
+from griptape_nodes_library.utils.image_utils import (
+    dict_to_image_url_artifact,
+    load_pil_from_url,
+    save_pil_image_with_named_filename,
+)
+from griptape_nodes_library.utils.file_utils import generate_filename
+
+
+class TwoImageProcessor(SuccessFailureNode):
+    """Base pattern for nodes processing two images."""
+
+    CATEGORY: ClassVar[str] = "image"
+
+    def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
+        super().__init__(name, metadata)
+
+        # First image input
+        self.add_parameter(
+            ParameterImage(
+                name="image_a",
+                tooltip="First input image",
+                ui_options={"clickable_file_browser": True, "expander": True},
+            )
+        )
+
+        # Second image input
+        self.add_parameter(
+            ParameterImage(
+                name="image_b",
+                tooltip="Second input image",
+                ui_options={"clickable_file_browser": True, "expander": True},
+            )
+        )
+
+        # Output image
+        self.add_parameter(
+            ParameterImage(
+                name="output_image",
+                tooltip="Processed result",
+                allowed_modes={ParameterMode.OUTPUT},
+            )
+        )
+
+    def _get_image_artifact(self, param_name: str) -> ImageUrlArtifact | None:
+        """Convert parameter value to ImageUrlArtifact."""
+        value = self.get_parameter_value(param_name)
+        if value is None:
+            return None
+        if isinstance(value, dict):
+            return dict_to_image_url_artifact(value)
+        return value
+
+    def _process_images(self) -> None:
+        """Process both images and set output."""
+        image_a_artifact = self._get_image_artifact("image_a")
+        image_b_artifact = self._get_image_artifact("image_b")
+
+        if not image_a_artifact or not image_b_artifact:
+            return
+
+        # Load as PIL images
+        pil_a = load_pil_from_url(image_a_artifact.value)
+        pil_b = load_pil_from_url(image_b_artifact.value)
+
+        # Process images (override in subclass)
+        result_pil = self._do_processing(pil_a, pil_b)
+
+        # Save result
+        filename = generate_filename(self.name, suffix="processed")
+        output_artifact = save_pil_image_with_named_filename(result_pil, filename)
+        self.parameter_output_values["output_image"] = output_artifact
+
+    def _do_processing(self, image_a: Image.Image, image_b: Image.Image) -> Image.Image:
+        """Override this method with actual processing logic."""
+        raise NotImplementedError
+
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        """Trigger live preview when both images are available."""
+        if parameter.name in ("image_a", "image_b"):
+            image_a = self.get_parameter_value("image_a")
+            image_b = self.get_parameter_value("image_b")
+            if image_a and image_b:
+                self._process_images()
+
+        return super().after_value_set(parameter, value)
+
+    def process(self) -> None:
+        """Main processing entry point."""
+        self._process_images()
+```
+
+**Key Utilities Used**:
+
+- `dict_to_image_url_artifact()`: Converts dict representation to artifact
+- `load_pil_from_url()`: Loads PIL Image from URL (including localhost)
+- `save_pil_image_with_named_filename()`: Saves PIL Image and returns artifact
+- `generate_filename()`: Creates consistent filenames with node name
+
 ## Lifecycle Callbacks
 
 All callbacks are overridable:
@@ -629,20 +787,41 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 ### Type Checking for Third-Party Libraries
 
-When importing third-party libraries that aren't available in CI type checking environments (like `sklearn`, `ultralytics`, `supervision`), use the `type: ignore[import-untyped]` comment:
+When importing third-party libraries, you may encounter type checking errors. Use the appropriate `type: ignore` comment based on the situation:
+
+#### Scenario 1: Library Installed but Missing Type Stubs
+
+For libraries that are installed but lack type annotations (like `sklearn`, `ultralytics`, `supervision`):
 
 ```python
-# ✅ CORRECT: Suppresses type checking errors for untyped imports
+# ✅ Library exists but has no type stubs
 from sklearn.cluster import KMeans  # type: ignore[import-untyped]
 from ultralytics import YOLO  # type: ignore[import-untyped]
 from supervision import Detections  # type: ignore[import-untyped]
 ```
 
-**Why `import-untyped` over `reportMissingImports`?**
+#### Scenario 2: Library Not Installed in CI Type Checking Environment
 
-- More precise - targets untyped imports specifically
-- Preferred format across the codebase
-- Cleaner type check logs
+For libraries that are runtime dependencies but not installed in the CI type checking environment (like `color-matcher`, specialized processing libraries):
+
+```python
+# ✅ Library not installed in type checking environment
+from color_matcher import ColorMatcher  # type: ignore[reportMissingImports]
+from color_matcher.normalizations import norm_img_to_uint8  # type: ignore[reportMissingImports]
+```
+
+#### When to Use Which
+
+| Error Type | Comment | Use When |
+|------------|---------|----------|
+| `import-untyped` | `# type: ignore[import-untyped]` | Library installed, no type stubs |
+| `reportMissingImports` | `# type: ignore[reportMissingImports]` | Library not in CI environment |
+
+**General guidance:**
+
+- `import-untyped` is preferred when both work - it's more precise
+- `reportMissingImports` is necessary when the library isn't available during type checking
+- Check CI logs to determine which error you're actually getting
 
 ### Function Parameter Management
 
@@ -1523,6 +1702,187 @@ Bundle nodes into libraries for sharing. Create `griptape_nodes_library.json`:
 
 Use flat directory structures. The engine automatically registers and loads libraries.
 
+## Contributing to the Standard Library
+
+When adding nodes to the core `griptape_nodes_library` (as opposed to creating a standalone library), follow this process:
+
+### 1. Create a Feature Branch
+
+```bash
+cd griptape-nodes
+git checkout -b feature/add-color-match-node
+```
+
+### 2. Add the Node File
+
+Place your node in the appropriate category subdirectory:
+
+```
+libraries/griptape_nodes_library/griptape_nodes_library/
+├── image/
+│   ├── color_match.py      # New node file
+│   ├── load_image.py
+│   └── save_image.py
+├── text/
+├── audio/
+└── ...
+```
+
+### 3. Update griptape_nodes_library.json
+
+Make three updates to `libraries/griptape_nodes_library/griptape_nodes_library.json`:
+
+#### a. Increment the library version
+
+```json
+{
+  "metadata": {
+    "library_version": "0.59.0"  // Was 0.58.0
+  }
+}
+```
+
+#### b. Add any new pip dependencies
+
+```json
+{
+  "metadata": {
+    "dependencies": {
+      "pip_dependencies": [
+        "existing-dep",
+        "color-matcher"  // New dependency
+      ]
+    }
+  }
+}
+```
+
+#### c. Add the node entry
+
+```json
+{
+  "nodes": [
+    {
+      "class_name": "ColorMatch",
+      "file_path": "griptape_nodes_library/image/color_match.py",
+      "metadata": {
+        "category": "image",
+        "description": "Transfer color characteristics from a reference image to a target image",
+        "display_name": "Color Match",
+        "icon": "palette",
+        "group": "edit"
+      }
+    }
+  ]
+}
+```
+
+### 4. Add Documentation
+
+Create a documentation page at `docs/nodes/<category>/<node_name>.md`:
+
+```markdown
+# Color Match
+
+Transfer color characteristics from a reference image to a target image.
+
+## What It Does
+
+Applies the color palette from a reference image to a target image...
+
+## Parameters
+
+### Inputs
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| reference_image | ImageUrlArtifact | Source of the color palette |
+| target_image | ImageUrlArtifact | Image to apply colors to |
+
+### Outputs
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| output_image | ImageUrlArtifact | Color-matched result |
+
+## Example Usage
+
+1. Connect a reference image with desired colors
+2. Connect the target image to transform
+3. Run the node
+
+## Technical Details
+
+Uses the color-matcher library with histogram matching...
+```
+
+### 5. Update mkdocs.yml Navigation
+
+Add your doc page to the navigation in `mkdocs.yml`:
+
+```yaml
+nav:
+  - Nodes Reference:
+      - Image:
+          - Load Image: nodes/image/load_image.md
+          - Save Image: nodes/image/save_image.md
+          - Color Match: nodes/image/color_match.md  # New entry
+```
+
+### 6. Run Quality Checks
+
+Before committing, run formatting and checks:
+
+```bash
+make format        # Auto-format code
+make check/lint    # Check for linting issues
+make check/types   # Check for type errors
+```
+
+Fix any issues that arise before proceeding.
+
+### 7. Commit and Create PR
+
+```bash
+git add .
+git commit -m "feat(image): add ColorMatch node for color transfer"
+git push -u origin HEAD
+gh pr create --title "Add ColorMatch node" --body "## Summary
+- Adds ColorMatch node for transferring colors between images
+- Uses color-matcher library
+- Includes documentation
+
+## Test plan
+- [ ] Load two images
+- [ ] Run color match
+- [ ] Verify output has reference colors"
+```
+
+### Standard Library vs External Library
+
+| Aspect | Standard Library | External Library |
+|--------|------------------|------------------|
+| Location | `griptape-nodes` repo | Separate repo |
+| Installation | Included by default | User installs |
+| Review | Requires PR approval | Self-published |
+| Dependencies | Added to core `griptape_nodes_library.json` | Own `griptape_nodes_library.json` |
+| Versioning | Follows core library version | Independent versioning |
+| Docs | Added to main docs site | README in library |
+
+**When to contribute to standard library:**
+
+- Node has broad utility for many users
+- No proprietary/paid API dependencies
+- Stable, well-tested implementation
+- Follows all code quality standards
+
+**When to create external library:**
+
+- Niche use case
+- Requires paid API keys
+- Experimental/rapidly changing
+- Want independent release cycle
+
 ## Appendix
 
 ### Imports
@@ -1551,9 +1911,63 @@ from griptape_nodes_library.utils.artifact_path_tethering import (
     ArtifactPathTethering, ArtifactTetheringConfig
 )
 from griptape_nodes_library.utils.image_utils import (
-    dict_to_image_url_artifact, load_pil_from_url
+    dict_to_image_url_artifact,
+    load_pil_from_url,
+    save_pil_image_with_named_filename,
 )
 from griptape_nodes_library.utils.file_utils import generate_filename
+```
+
+### Utility Function Reference
+
+#### Image Utilities (`griptape_nodes_library.utils.image_utils`)
+
+| Function | Purpose | Returns |
+|----------|---------|---------|
+| `dict_to_image_url_artifact(d)` | Convert dict representation to ImageUrlArtifact | `ImageUrlArtifact` |
+| `load_pil_from_url(url)` | Load PIL Image from URL (handles localhost) | `PIL.Image.Image` |
+| `save_pil_image_with_named_filename(img, filename)` | Save PIL Image to static storage | `ImageUrlArtifact` |
+
+**Example usage:**
+
+```python
+from griptape_nodes_library.utils.image_utils import (
+    dict_to_image_url_artifact,
+    load_pil_from_url,
+    save_pil_image_with_named_filename,
+)
+
+# Convert parameter value to artifact
+value = self.get_parameter_value("image")
+if isinstance(value, dict):
+    artifact = dict_to_image_url_artifact(value)
+else:
+    artifact = value
+
+# Load as PIL for processing
+pil_image = load_pil_from_url(artifact.value)
+
+# Process image...
+processed = pil_image.filter(...)
+
+# Save and get output artifact
+output_artifact = save_pil_image_with_named_filename(processed, "result.png")
+self.parameter_output_values["output"] = output_artifact
+```
+
+#### File Utilities (`griptape_nodes_library.utils.file_utils`)
+
+| Function | Purpose | Returns |
+|----------|---------|---------|
+| `generate_filename(node_name, suffix, ext)` | Create consistent filename | `str` |
+
+**Example usage:**
+
+```python
+from griptape_nodes_library.utils.file_utils import generate_filename
+
+# Generate filename like "ColorMatch_processed_abc123.png"
+filename = generate_filename(self.name, suffix="processed", ext="png")
 ```
 
 ### Advanced Parameter Types
