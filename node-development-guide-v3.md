@@ -348,10 +348,12 @@ Buttons provide interactive UI elements that trigger actions when clicked, such 
 
 - Enforces `type="button"` and `output_type="str"`
 - By default, it's a **property-only** UI element (`allow_property=True`, `allow_input=False`, `allow_output=False`)
-- You can provide either `href="..."` (simple link) or `on_click=...` (custom callback)
+- Accepts either `href="..."` (simple link) or `on_click=...` (custom callback) parameters
 - `label` is the display text shown on the button
 - `icon` adds a visual icon (optional)
 - `icon_position` controls icon placement ("left" or "right", defaults to "left")
+
+**Important:** The `on_click` handler and `href` are passed **directly to `ParameterButton`** as parameters, not via the `Button` trait.
 
 **Implementation Pattern:**
 
@@ -372,7 +374,7 @@ class MyNode(DataNode):
                 name="update_button",
                 label="Update Date/Time",
                 icon="calendar",
-                on_click=self._handle_button_click,
+                on_click=self._handle_button_click,  # Pass on_click directly
             )
         self.add_node_element(button_group)
         
@@ -415,14 +417,14 @@ with ParameterButtonGroup(name="navigation_buttons") as nav_buttons:
         name="previous",
         label="Previous",
         icon="arrow-left",
-        on_click=self._previous_item,
+        on_click=self._previous_item,  # Pass on_click directly
     )
     ParameterButton(
         name="next",
         label="Next",
         icon="arrow-right",
         icon_position="right",
-        on_click=self._next_item,
+        on_click=self._next_item,  # Pass on_click directly
     )
 self.add_node_element(nav_buttons)
 ```
@@ -472,7 +474,7 @@ ParameterButton(
     name="docs_link",
     label="View Documentation",
     icon="external-link",
-    href="https://docs.griptape.ai",
+    href="https://docs.griptape.ai",  # Pass href directly
 )
 ```
 

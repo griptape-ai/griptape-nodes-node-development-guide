@@ -133,7 +133,7 @@ class ExampleNode(DataNode):
         # Button to update date/time
         #
         # Buttons are created using ParameterButtonGroup and ParameterButton.
-        # The `on_click` handler is called when the button is pressed.
+        # The `on_click` handler is passed directly to ParameterButton and called when the button is pressed.
         with ParameterButtonGroup(name="datetime_button_group") as datetime_buttons:
             ParameterButton(
                 name="update_datetime",
