@@ -342,8 +342,168 @@ self.add_parameter(
 
 ##### `ParameterButton`
 
-- Enforces `type="button"` and `output_type="str"`. By default, it’s a **property-only** UI element (`allow_property=True`, `allow_input=False`, `allow_output=False`).
-- You can provide either `href="..."` (simple link) or `on_click=...` (custom callback); `label` is display text and is independent from `default_value` (stored value).
+Buttons provide interactive UI elements that trigger actions when clicked, such as updating parameters, performing calculations, or navigating between states.
+
+**Basic Properties:**
+
+- Enforces `type="button"` and `output_type="str"`
+- By default, it's a **property-only** UI element (`allow_property=True`, `allow_input=False`, `allow_output=False`)
+- You can provide either `href="..."` (simple link) or `on_click=...` (custom callback)
+- `label` is the display text shown on the button
+- `icon` adds a visual icon (optional)
+- `icon_position` controls icon placement ("left" or "right", defaults to "left")
+
+**Implementation Pattern:**
+
+Buttons must be wrapped in a `ParameterButtonGroup` container:
+
+```python
+from griptape_nodes.exe_types.core_types import ParameterButtonGroup
+from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
+from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
+
+class MyNode(DataNode):
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        
+        # Create button group with context manager
+        with ParameterButtonGroup(name="my_button_group") as button_group:
+            ParameterButton(
+                name="update_button",
+                label="Update Date/Time",
+                icon="calendar",
+                on_click=self._handle_button_click,
+            )
+        self.add_node_element(button_group)
+        
+        # Add parameter that will be updated by button
+        self.add_parameter(
+            Parameter(
+                name="display_value",
+                tooltip="Value updated by button",
+                type=ParameterTypeBuiltin.STR.value,
+                allowed_modes={ParameterMode.PROPERTY},
+                ui_options={
+                    "display_name": "Display Value",
+                    "readonly": True,  # Prevent manual editing
+                },
+                default_value="Click button to update",
+            )
+        )
+    
+    def _handle_button_click(
+        self,
+        button: Button,
+        button_payload: ButtonDetailsMessagePayload,
+    ) -> None:
+        """Button click handler.
+        
+        Args:
+            button: The Button trait instance
+            button_payload: Contains click event details
+        """
+        # Update parameter value
+        new_value = "Updated at " + datetime.now().strftime("%H:%M:%S")
+        self.set_parameter_value("display_value", new_value)
+```
+
+**Multiple Buttons in a Group:**
+
+```python
+with ParameterButtonGroup(name="navigation_buttons") as nav_buttons:
+    ParameterButton(
+        name="previous",
+        label="Previous",
+        icon="arrow-left",
+        on_click=self._previous_item,
+    )
+    ParameterButton(
+        name="next",
+        label="Next",
+        icon="arrow-right",
+        icon_position="right",
+        on_click=self._next_item,
+    )
+self.add_node_element(nav_buttons)
+```
+
+**Common Use Cases:**
+
+1. **Update Display Values**
+   ```python
+   def _update_datetime(self, button: Button, button_payload: ButtonDetailsMessagePayload) -> None:
+       """Update datetime display when button is clicked."""
+       current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+       self.set_parameter_value("datetime_display", current_time)
+   ```
+
+2. **Navigate Through Items**
+   ```python
+   def _next_image(self, button: Button, button_payload: ButtonDetailsMessagePayload) -> None:
+       """Increment index and update display."""
+       current_index = self.get_parameter_value("image_index")
+       self.set_parameter_value("image_index", current_index + 1)
+       self._update_display()
+   ```
+
+3. **Trigger Calculations**
+   ```python
+   def _calculate(self, button: Button, button_payload: ButtonDetailsMessagePayload) -> None:
+       """Perform calculation and update result parameter."""
+       input_value = self.get_parameter_value("input")
+       result = self._perform_complex_calculation(input_value)
+       self.set_parameter_value("result", result)
+   ```
+
+4. **Reset to Defaults**
+   ```python
+   def _reset(self, button: Button, button_payload: ButtonDetailsMessagePayload) -> None:
+       """Reset parameters to default values."""
+       self.set_parameter_value("counter", 0)
+       self.set_parameter_value("display", "")
+   ```
+
+**Link Buttons (Alternative to `on_click`):**
+
+For simple navigation to external URLs:
+
+```python
+ParameterButton(
+    name="docs_link",
+    label="View Documentation",
+    icon="external-link",
+    href="https://docs.griptape.ai",
+)
+```
+
+**Best Practices:**
+
+- Use descriptive button labels that clearly indicate the action
+- Choose appropriate icons that match the action (e.g., "calendar" for date/time, "arrow-left"/"arrow-right" for navigation)
+- Keep button handlers simple and focused on a single action
+- Use read-only parameters for values that should only be updated by buttons
+- Avoid triggering expensive operations directly in button handlers (consider using flags that `process()` checks instead)
+- Group related buttons together in a single `ParameterButtonGroup`
+
+**Common Patterns:**
+
+| Pattern | Button Action | Updated Parameter Type | Use Case |
+|---------|---------------|------------------------|----------|
+| Update Display | Updates a read-only text parameter | `PROPERTY` (readonly) | Show current time, status, count |
+| Navigation | Increments/decrements an index | Hidden `PROPERTY` parameter | Image carousel, list browsing |
+| Toggle State | Switches between states | `PROPERTY` parameter | Enable/disable features |
+| Trigger Action | Sets a flag checked by `process()` | Hidden `PROPERTY` parameter | Refresh data, recalculate |
+
+**Complete Example:**
+
+See `example_control_node.py` and `image_carousel.py` for working implementations that demonstrate:
+- Button creation with icons
+- Button group usage
+- Updating read-only parameters
+- Handler method signatures
+- Navigation patterns
+- Locale-appropriate datetime formatting
+
 
 ### Containers
 

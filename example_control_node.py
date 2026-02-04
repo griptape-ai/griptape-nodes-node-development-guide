@@ -15,11 +15,14 @@ from __future__ import annotations
 from typing import Any
 
 import random
+from datetime import datetime
 
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterTypeBuiltin
+from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterTypeBuiltin, ParameterButtonGroup
 from griptape_nodes.exe_types.node_types import DataNode
+from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
+from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 
 class ExampleNode(DataNode):
     def __init__(self, name: str, metadata: dict[Any, Any] | None = None) -> None:
@@ -126,6 +129,50 @@ class ExampleNode(DataNode):
                 },
             )
         )
+
+        # Button to update date/time
+        #
+        # Buttons are created using ParameterButtonGroup and ParameterButton.
+        # The `on_click` handler is called when the button is pressed.
+        with ParameterButtonGroup(name="datetime_button_group") as datetime_buttons:
+            ParameterButton(
+                name="update_datetime",
+                label="Update Date/Time",
+                icon="calendar",
+                on_click=self._update_datetime,
+            )
+        self.add_node_element(datetime_buttons)
+
+        # Read-only date/time parameter
+        #
+        # This parameter displays the current date and time in a locale-appropriate format.
+        # It's PROPERTY-only (not INPUT/OUTPUT) and uses "readonly" in ui_options to prevent editing.
+        self.add_parameter(
+            Parameter(
+                name="datetime_display",
+                tooltip="Current date and time",
+                type=ParameterTypeBuiltin.STR.value,
+                allowed_modes={ParameterMode.PROPERTY},
+                ui_options={
+                    "display_name": "Date/Time",
+                    "readonly": True,
+                },
+                default_value="Click button to update",
+            )
+        )
+
+    def _update_datetime(
+        self,
+        button: Button,
+        button_payload: ButtonDetailsMessagePayload,
+    ) -> None:
+        """Button handler: update the datetime_display parameter with current date/time.
+        
+        Uses locale-appropriate formatting (e.g., 2024-02-04 14:30:45).
+        """
+        # Get current datetime and format it in ISO-like format (space-efficient and locale-appropriate)
+        current_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.set_parameter_value("datetime_display", current_datetime)
 
     def process(self) -> None:
         """Run the node.
