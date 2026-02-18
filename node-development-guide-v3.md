@@ -16,12 +16,13 @@
 12. [Logging Best Practices](#logging-best-practices)
 13. [Flexible Artifact Processing](#flexible-artifact-processing)
 14. [Creating Node Libraries](#creating-node-libraries)
-15. [Library Structure with uv Dependency Management](#library-structure-with-uv-dependency-management)
-16. [Two-Mode UI Pattern (Simple + Custom)](#two-mode-ui-pattern-simple--custom)
-17. [Music/Audio Generation API Patterns](#musicaudio-generation-api-patterns)
-18. [Documentation Patterns for Node Libraries](#documentation-patterns-for-node-libraries)
-19. [Contributing to the Standard Library](#contributing-to-the-standard-library)
-20. [Appendix](#appendix)
+15. [Custom Widget Components](#custom-widget-components)
+16. [Library Structure with uv Dependency Management](#library-structure-with-uv-dependency-management)
+17. [Two-Mode UI Pattern (Simple + Custom)](#two-mode-ui-pattern-simple--custom)
+18. [Music/Audio Generation API Patterns](#musicaudio-generation-api-patterns)
+19. [Documentation Patterns for Node Libraries](#documentation-patterns-for-node-libraries)
+20. [Contributing to the Standard Library](#contributing-to-the-standard-library)
+21. [Appendix](#appendix)
 
 ## Introduction
 
@@ -261,7 +262,7 @@ For parameters that should only appear for certain model types:
 ```python
 def __init__(self, **kwargs) -> None:
     super().__init__(**kwargs)
-    
+
     # Add image parameter (hidden by default)
     self.add_parameter(
         ParameterImage(
@@ -270,7 +271,7 @@ def __init__(self, **kwargs) -> None:
             allow_output=False,
         )
     )
-    
+
     # Initialize visibility based on default model
     self._initialize_parameter_visibility()
 
@@ -290,18 +291,18 @@ def after_value_set(self, parameter: Parameter, value: Any) -> None:
         else:
             self.hide_parameter_by_name("input_image")
             self.set_parameter_value("input_image", None)  # Clear when hiding
-    
+
     return super().after_value_set(parameter, value)
 ```
 
 **Why Use `ParameterImage` Over Generic `Parameter`:**
 
-| Aspect | Generic `Parameter` | `ParameterImage` |
-|--------|---------------------|------------------|
-| Type safety | Manual `type`/`input_types` setup | Automatic artifact types |
+| Aspect      | Generic `Parameter`               | `ParameterImage`                            |
+| ----------- | --------------------------------- | ------------------------------------------- |
+| Type safety | Manual `type`/`input_types` setup | Automatic artifact types                    |
 | UI features | Manual `ui_options` configuration | Built-in file browser, webcam, mask editing |
-| Consistency | Varies by implementation | Standardized across nodes |
-| Maintenance | More boilerplate code | Less code, cleaner |
+| Consistency | Varies by implementation          | Standardized across nodes                   |
+| Maintenance | More boilerplate code             | Less code, cleaner                          |
 
 **Legacy Pattern (Avoid):**
 
@@ -339,7 +340,6 @@ self.add_parameter(
 - These helpers primarily provide UI options (file browser / capture / editing / expanders). If you need coercion from e.g. `str` → artifact, supply `converters` and/or handle it in your node's `before_value_set()` / `process()` logic.
 - Follow the same patterns as `ParameterImage` for these media types.
 
-
 ##### `ParameterButton`
 
 Buttons provide interactive UI elements that trigger actions when clicked, such as updating parameters, performing calculations, or navigating between states.
@@ -367,7 +367,7 @@ from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 class MyNode(DataNode):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
-        
+
         # Create button group with context manager
         with ParameterButtonGroup(name="my_button_group") as button_group:
             ParameterButton(
@@ -377,7 +377,7 @@ class MyNode(DataNode):
                 on_click=self._handle_button_click,  # Pass on_click directly
             )
         self.add_node_element(button_group)
-        
+
         # Add parameter that will be updated by button
         self.add_parameter(
             Parameter(
@@ -392,14 +392,14 @@ class MyNode(DataNode):
                 default_value="Click button to update",
             )
         )
-    
+
     def _handle_button_click(
         self,
         button: Button,
         button_payload: ButtonDetailsMessagePayload,
     ) -> None:
         """Button click handler.
-        
+
         Args:
             button: The Button trait instance
             button_payload: Contains click event details
@@ -432,6 +432,7 @@ self.add_node_element(nav_buttons)
 **Common Use Cases:**
 
 1. **Update Display Values**
+
    ```python
    def _update_datetime(self, button: Button, button_payload: ButtonDetailsMessagePayload) -> None:
        """Update datetime display when button is clicked."""
@@ -440,6 +441,7 @@ self.add_node_element(nav_buttons)
    ```
 
 2. **Navigate Through Items**
+
    ```python
    def _next_image(self, button: Button, button_payload: ButtonDetailsMessagePayload) -> None:
        """Increment index and update display."""
@@ -449,6 +451,7 @@ self.add_node_element(nav_buttons)
    ```
 
 3. **Trigger Calculations**
+
    ```python
    def _calculate(self, button: Button, button_payload: ButtonDetailsMessagePayload) -> None:
        """Perform calculation and update result parameter."""
@@ -489,23 +492,23 @@ ParameterButton(
 
 **Common Patterns:**
 
-| Pattern | Button Action | Updated Parameter Type | Use Case |
-|---------|---------------|------------------------|----------|
-| Update Display | Updates a read-only text parameter | `PROPERTY` (readonly) | Show current time, status, count |
-| Navigation | Increments/decrements an index | Hidden `PROPERTY` parameter | Image carousel, list browsing |
-| Toggle State | Switches between states | `PROPERTY` parameter | Enable/disable features |
-| Trigger Action | Sets a flag checked by `process()` | Hidden `PROPERTY` parameter | Refresh data, recalculate |
+| Pattern        | Button Action                      | Updated Parameter Type      | Use Case                         |
+| -------------- | ---------------------------------- | --------------------------- | -------------------------------- |
+| Update Display | Updates a read-only text parameter | `PROPERTY` (readonly)       | Show current time, status, count |
+| Navigation     | Increments/decrements an index     | Hidden `PROPERTY` parameter | Image carousel, list browsing    |
+| Toggle State   | Switches between states            | `PROPERTY` parameter        | Enable/disable features          |
+| Trigger Action | Sets a flag checked by `process()` | Hidden `PROPERTY` parameter | Refresh data, recalculate        |
 
 **Complete Example:**
 
 See `example_control_node.py` and `image_carousel.py` for working implementations that demonstrate:
+
 - Button creation with icons
 - Button group usage
 - Updating read-only parameters
 - Handler method signatures
 - Navigation patterns
 - Locale-appropriate datetime formatting
-
 
 ### Containers
 
@@ -974,10 +977,10 @@ from color_matcher.normalizations import norm_img_to_uint8  # type: ignore[repor
 
 #### When to Use Which
 
-| Error Type | Comment | Use When |
-|------------|---------|----------|
-| `import-untyped` | `# type: ignore[import-untyped]` | Library installed, no type stubs |
-| `reportMissingImports` | `# type: ignore[reportMissingImports]` | Library not in CI environment |
+| Error Type             | Comment                                | Use When                         |
+| ---------------------- | -------------------------------------- | -------------------------------- |
+| `import-untyped`       | `# type: ignore[import-untyped]`       | Library installed, no type stubs |
+| `reportMissingImports` | `# type: ignore[reportMissingImports]` | Library not in CI environment    |
 
 **General guidance:**
 
@@ -1821,6 +1824,13 @@ Bundle nodes into libraries for sharing. Create `griptape_nodes_library.json`:
       "pip_install_flags": ["--upgrade"]
     }
   },
+  "widgets": [
+    {
+      "name": "MyWidget",
+      "path": "widgets/MyWidget.js",
+      "description": "Custom UI component for the node"
+    }
+  ],
   "categories": [
     {
       "image": {
@@ -1856,6 +1866,7 @@ Bundle nodes into libraries for sharing. Create `griptape_nodes_library.json`:
   - Category should be `app_events.on_app_initialization_complete`
   - Secrets are accessed via `GriptapeNodes.SecretsManager().get_secret()`
 - **metadata.dependencies**: PIP packages installed on library load
+- **widgets**: Register custom JS widget components (see [Custom Widget Components](#custom-widget-components))
 - **categories**: Group nodes in UI with colors and icons
 - **nodes**: List node classes, file paths, and metadata
 - **workflows**: Template workflow files
@@ -1863,6 +1874,212 @@ Bundle nodes into libraries for sharing. Create `griptape_nodes_library.json`:
 **Important:** The `secrets_to_register` array tells the system which secrets your library needs. Users will be prompted to configure these secrets through the UI or environment variables.
 
 Use flat directory structures. The engine automatically registers and loads libraries.
+
+## Custom Widget Components
+
+Nodes can use custom JavaScript widget components to provide rich, interactive UI beyond the standard parameter controls. Widgets are standalone `.js` files that render into a container element and communicate value changes back to the framework via a callback.
+
+### Widget Architecture
+
+A custom widget involves three pieces:
+
+1. **Widget JS file** (`widgets/MyWidget.js`) — the UI component
+2. **Node Python file** — references the widget via the `Widget` trait on a parameter
+3. **Library JSON** (`griptape_nodes_library.json`) — registers the widget so the framework can find it
+
+```
+library_name/
+├── griptape_nodes_library.json
+├── my_node.py
+└── widgets/
+    └── MyWidget.js
+```
+
+### Registering a Widget
+
+Add a `"widgets"` array to `griptape_nodes_library.json`:
+
+```json
+{
+  "name": "My Library",
+  "widgets": [
+    {
+      "name": "MyWidget",
+      "path": "widgets/MyWidget.js",
+      "description": "Description of the widget"
+    }
+  ],
+  "nodes": [ ... ]
+}
+```
+
+The `name` must match the name used in the `Widget` trait on the Python side, and the `library` argument must match the `"name"` field at the top level of the JSON.
+
+### Attaching a Widget to a Parameter
+
+Use the `Widget` trait to bind a parameter to your custom widget. The parameter's value is passed to the widget as `props.value`, and changes flow back through `props.onChange`:
+
+```python
+from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
+from griptape_nodes.traits.widget import Widget
+
+self.add_parameter(
+    Parameter(
+        name="my_data",
+        input_types=["list"],
+        type="list",
+        output_type="list",
+        default_value=[],
+        tooltip="Data managed by custom widget",
+        allowed_modes={ParameterMode.PROPERTY, ParameterMode.OUTPUT},
+        traits={Widget(name="MyWidget", library="My Library")},
+    )
+)
+```
+
+### Widget JS Function Signature
+
+Widgets are ES module default exports. The function receives a container DOM element and a props object, and must return a cleanup function:
+
+```javascript
+export default function MyWidget(container, props) {
+  const { value, onChange, disabled, height } = props;
+
+  // Build your UI inside `container`
+  // Call `onChange(newValue)` when the user changes data
+  // Respect `disabled` to prevent interaction when appropriate
+
+  // Return a cleanup function
+  return () => {
+    // Remove event listeners, dispose resources
+  };
+}
+```
+
+**Props:**
+
+| Prop       | Type       | Description                                      |
+| ---------- | ---------- | ------------------------------------------------ |
+| `value`    | `any`      | Current parameter value (matches Python default)  |
+| `onChange`  | `function` | Callback to send updated value to the framework  |
+| `disabled` | `boolean`  | Whether the widget should be read-only            |
+| `height`   | `number`   | Suggested height in pixels (may be 0 or absent)   |
+
+### Critical Patterns and Pitfalls
+
+#### Emit Changes Sparingly — Not on Every Keystroke
+
+When `onChange` is called, the framework may re-invoke the entire widget function with new props, destroying and recreating all DOM. This means calling `onChange` on every `input` event of a text field will make typing impossible — the textarea is destroyed and rebuilt after each character.
+
+**Pattern:** For text inputs, update local state on `input` and only call `onChange` on `blur` (when the user finishes editing). For discrete controls (buttons, dropdowns, drag-end), call `onChange` immediately.
+
+```javascript
+// Local state updates on every keystroke (no DOM rebuild)
+textarea.addEventListener("input", (e) => {
+  localData[index].text = e.target.value;
+});
+
+// Emit to framework only when the user leaves the field
+textarea.addEventListener("blur", () => {
+  onChange(structuredClone(localData));
+});
+```
+
+This matches the pattern used by built-in widgets like the AnglePicker, which only emits on drag-end rather than during continuous mouse movement.
+
+#### Prevent Node Drag Interference
+
+Node canvases handle drag events for panning and node movement. Interactive elements inside your widget must stop event propagation and use the `nodrag` / `nowheel` CSS classes:
+
+```javascript
+// On the outermost wrapper
+const wrapper = document.createElement("div");
+wrapper.className = "my-widget nodrag nowheel";
+
+// On interactive child elements (textareas, sliders, etc.)
+textarea.addEventListener("pointerdown", (e) => e.stopPropagation());
+textarea.addEventListener("mousedown", (e) => e.stopPropagation());
+```
+
+#### Override `user-select: none` for Text Inputs
+
+Widget wrappers typically set `user-select: none` to prevent accidental text selection during drag operations. This cascades into child elements and blocks textarea editing. Override it explicitly:
+
+```css
+textarea {
+  user-select: text;
+  -webkit-user-select: text;
+}
+```
+
+#### Clone Values Before Emitting
+
+Always pass a fresh copy to `onChange` — not a reference to your internal state. Otherwise the framework and your widget share the same object, leading to subtle bugs:
+
+```javascript
+onChange(localData.map((item) => ({ ...item })));
+```
+
+#### Clean Up Document-Level Listeners
+
+If you attach listeners to `document` (e.g., for drag-and-drop or click-outside-to-close), remove them in the cleanup function:
+
+```javascript
+document.addEventListener("pointerdown", onDocumentClick, true);
+
+return () => {
+  document.removeEventListener("pointerdown", onDocumentClick, true);
+};
+```
+
+### Example: List-Based Editor Widget
+
+A common pattern is a widget that manages a list of structured items with add, delete, reorder, and inline editing. Key implementation details:
+
+- **Drag-and-drop reordering:** Attach `pointerdown` on drag handles, create a floating clone for visual feedback, track the insertion point via `pointermove`, and finalize the reorder on `pointerup`. Call `onChange` only after the drop.
+- **Validation constraints:** Enforce limits (max items, max total values, max text length) by disabling the add button and graying out invalid options in dropdowns rather than silently ignoring input.
+- **Status feedback:** Show a small status bar with current counts vs. limits (e.g., `"3 / 6 shots"`, `"8 / 15 s"`) so users understand why controls may be disabled.
+
+```python
+# Python side — list parameter with widget
+self.add_parameter(
+    Parameter(
+        name="items",
+        input_types=["list"],
+        type="list",
+        output_type="list",
+        default_value=[{"name": "Item1", "value": ""}],
+        allowed_modes={ParameterMode.PROPERTY, ParameterMode.OUTPUT},
+        traits={Widget(name="MyListEditor", library="My Library")},
+    )
+)
+```
+
+```javascript
+// JS side — skeleton for a list editor widget
+export default function MyListEditor(container, props) {
+  const { value, onChange, disabled } = props;
+  let items = Array.isArray(value) ? value.map((v) => ({ ...v })) : [];
+
+  function render() {
+    container.innerHTML = "";
+    const wrapper = document.createElement("div");
+    wrapper.className = "nodrag nowheel";
+    // ... build item list, add button, etc.
+    container.appendChild(wrapper);
+  }
+
+  function emitChange() {
+    if (!disabled && onChange) {
+      onChange(items.map((item) => ({ ...item })));
+    }
+  }
+
+  render();
+
+  return () => { /* cleanup */ };
+}
+```
 
 ## Contributing to the Standard Library
 
@@ -1899,7 +2116,7 @@ Make three updates to `libraries/griptape_nodes_library/griptape_nodes_library.j
 ```json
 {
   "metadata": {
-    "library_version": "0.59.0"  // Was 0.58.0
+    "library_version": "0.59.0" // Was 0.58.0
   }
 }
 ```
@@ -1912,7 +2129,7 @@ Make three updates to `libraries/griptape_nodes_library/griptape_nodes_library.j
     "dependencies": {
       "pip_dependencies": [
         "existing-dep",
-        "color-matcher"  // New dependency
+        "color-matcher" // New dependency
       ]
     }
   }
@@ -1956,15 +2173,15 @@ Applies the color palette from a reference image to a target image...
 
 ### Inputs
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
+| Parameter       | Type             | Description                 |
+| --------------- | ---------------- | --------------------------- |
 | reference_image | ImageUrlArtifact | Source of the color palette |
-| target_image | ImageUrlArtifact | Image to apply colors to |
+| target_image    | ImageUrlArtifact | Image to apply colors to    |
 
 ### Outputs
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
+| Parameter    | Type             | Description          |
+| ------------ | ---------------- | -------------------- |
 | output_image | ImageUrlArtifact | Color-matched result |
 
 ## Example Usage
@@ -1988,7 +2205,7 @@ nav:
       - Image:
           - Load Image: nodes/image/load_image.md
           - Save Image: nodes/image/save_image.md
-          - Color Match: nodes/image/color_match.md  # New entry
+          - Color Match: nodes/image/color_match.md # New entry
 ```
 
 ### 6. Run Quality Checks
@@ -2022,14 +2239,14 @@ gh pr create --title "Add ColorMatch node" --body "## Summary
 
 ### Standard Library vs External Library
 
-| Aspect | Standard Library | External Library |
-|--------|------------------|------------------|
-| Location | `griptape-nodes` repo | Separate repo |
-| Installation | Included by default | User installs |
-| Review | Requires PR approval | Self-published |
+| Aspect       | Standard Library                            | External Library                  |
+| ------------ | ------------------------------------------- | --------------------------------- |
+| Location     | `griptape-nodes` repo                       | Separate repo                     |
+| Installation | Included by default                         | User installs                     |
+| Review       | Requires PR approval                        | Self-published                    |
 | Dependencies | Added to core `griptape_nodes_library.json` | Own `griptape_nodes_library.json` |
-| Versioning | Follows core library version | Independent versioning |
-| Docs | Added to main docs site | README in library |
+| Versioning   | Follows core library version                | Independent versioning            |
+| Docs         | Added to main docs site                     | README in library                 |
 
 **When to contribute to standard library:**
 
@@ -2084,11 +2301,11 @@ from griptape_nodes_library.utils.file_utils import generate_filename
 
 #### Image Utilities (`griptape_nodes_library.utils.image_utils`)
 
-| Function | Purpose | Returns |
-|----------|---------|---------|
-| `dict_to_image_url_artifact(d)` | Convert dict representation to ImageUrlArtifact | `ImageUrlArtifact` |
-| `load_pil_from_url(url)` | Load PIL Image from URL (handles localhost) | `PIL.Image.Image` |
-| `save_pil_image_with_named_filename(img, filename)` | Save PIL Image to static storage | `ImageUrlArtifact` |
+| Function                                            | Purpose                                         | Returns            |
+| --------------------------------------------------- | ----------------------------------------------- | ------------------ |
+| `dict_to_image_url_artifact(d)`                     | Convert dict representation to ImageUrlArtifact | `ImageUrlArtifact` |
+| `load_pil_from_url(url)`                            | Load PIL Image from URL (handles localhost)     | `PIL.Image.Image`  |
+| `save_pil_image_with_named_filename(img, filename)` | Save PIL Image to static storage                | `ImageUrlArtifact` |
 
 **Example usage:**
 
@@ -2119,9 +2336,9 @@ self.parameter_output_values["output"] = output_artifact
 
 #### File Utilities (`griptape_nodes_library.utils.file_utils`)
 
-| Function | Purpose | Returns |
-|----------|---------|---------|
-| `generate_filename(node_name, suffix, ext)` | Create consistent filename | `str` |
+| Function                                    | Purpose                    | Returns |
+| ------------------------------------------- | -------------------------- | ------- |
+| `generate_filename(node_name, suffix, ext)` | Create consistent filename | `str`   |
 
 **Example usage:**
 
