@@ -39,8 +39,8 @@ Nodes inherit from BaseNode subclasses:
 
 ### Base Classes
 
-- **DataNode**: Processes data without execution flow control
-- **ControlNode**: Manages execution flow with exec_in/exec_out connections
+- **DataNode**: Processes data without execution flow control. Use for nodes that transform or pass through data synchronously — they process immediately when their inputs are satisfied.
+- **ControlNode**: Manages execution flow with exec_in/exec_out connections. Use for nodes that make external API calls, perform long-running operations, or need `AsyncResult` to yield work to a background thread. If your node calls an API and polls for results, it must be a ControlNode.
 - **StartNode**: Entry points for workflows
 - **EndNode**: Terminal points for workflows
 
@@ -2104,15 +2104,49 @@ if (dragOverIndex === items.length && item.index === lastIndex) {
 }
 ```
 
+#### Enforce Aggregate Constraints (Min/Max Totals)
+
+When list items have numeric values that must sum to within a range (e.g., total duration 3–15 seconds), enforce the constraint in both directions:
+
+- **Ceiling:** Disable the increase stepper and "add" button when the total would exceed the maximum.
+- **Floor:** Disable the decrease stepper when reducing any item would bring the total below the minimum.
+- **Auto-compensate on delete:** When removing an item would drop the total below the minimum, increase the last remaining item's value to make up the difference.
+
+```javascript
+const MIN_TOTAL = 3;
+const MAX_TOTAL = 15;
+
+// Disable decrease if total would go below minimum
+const wouldGoBelow = totalValue() - 1 < MIN_TOTAL;
+const canDecrease = !disabled && item.value > MIN_VALUE && !wouldGoBelow;
+
+// On delete — auto-compensate to maintain minimum total
+trash.addEventListener("pointerdown", (e) => {
+  e.stopPropagation();
+  if (items.length <= 1) return;
+  items.splice(index, 1);
+  const total = totalValue();
+  if (total < MIN_TOTAL) {
+    const lastItem = items[items.length - 1];
+    lastItem.value += MIN_TOTAL - total;
+  }
+  emitChange();
+  render();
+});
+```
+
+Show both bounds in the status bar so users understand the valid range: `"8s (3–15s)"`. Highlight in red when outside bounds.
+
 ### Example: List-Based Editor Widget
 
 A common pattern is a widget that manages a list of structured items with add, delete, reorder, and inline editing. Key implementation details:
 
 - **Stable IDs:** Assign a unique `id` to each item that survives reordering and round-trips through `onChange`.
 - **Drag-and-drop reordering:** Attach `pointerdown` on drag handles, create a floating clone for visual feedback, track the insertion point via `pointermove`, and finalize the reorder on `pointerup`. Call `onChange` only after the drop. Show drop indicators at both middle and end-of-list positions.
-- **Stepper controls:** For constrained numeric values (e.g., duration 1–15s), use ▲/▼ stepper buttons instead of dropdown menus. Disable buttons when they would violate constraints (min/max per item, max total across all items).
+- **Stepper controls:** For constrained numeric values (e.g., duration 1–15s), use ▲/▼ stepper buttons instead of dropdown menus. Disable buttons when they would violate constraints (min/max per item, min/max total across all items).
+- **Aggregate constraints:** Enforce both minimum and maximum totals across all items. Auto-compensate on delete to maintain the floor (see [Enforce Aggregate Constraints](#enforce-aggregate-constraints-minmax-totals)).
 - **Validation constraints:** Enforce limits (max items, max total values, max text length) by disabling the add button and stepper arrows rather than silently ignoring input.
-- **Status feedback:** Show a small status bar with current counts vs. limits (e.g., `"3 / 6 shots"`, `"8 / 15 s"`) so users understand why controls may be disabled.
+- **Status feedback:** Show a small status bar with current counts vs. limits (e.g., `"3 / 6 shots"`, `"8s (3–15s)"`) so users understand the valid range and why controls may be disabled.
 - **Text input isolation:** Stop propagation on `pointerdown`, `mousedown`, and `keydown` to prevent node drag and keyboard shortcut interference. Emit `onChange` only on `blur`.
 
 ```python
@@ -2674,6 +2708,34 @@ def _retrieve_result(self, file_id: str, headers: dict[str, str]) -> str:
 - Handle all status states: Success, Fail, Processing, Pending
 - Log polling attempts for debugging
 - Set safe defaults on failure
+
+### Dynamic Endpoint Selection Based on Inputs
+
+When a node can operate in multiple modes depending on which inputs are connected (e.g., image-to-video when images are provided, text-to-video when they are not), select the API endpoint dynamically in the process method rather than hardcoding a single URL:
+
+```python
+IMAGE2VIDEO_URL = "https://api.example.com/v1/videos/image2video"
+TEXT2VIDEO_URL = "https://api.example.com/v1/videos/text2video"
+
+def _process(self):
+    image_data = self._get_image_data("start_frame")
+    has_images = image_data is not None
+
+    if has_images:
+        api_url = IMAGE2VIDEO_URL
+    else:
+        api_url = TEXT2VIDEO_URL
+
+    payload = self._build_payload()
+    if image_data:
+        payload["image"] = image_data
+
+    response = requests.post(api_url, headers=headers, json=payload, timeout=30)
+    # ... polling uses the same api_url for status checks
+    poll_url = f"{api_url}/{task_id}"
+```
+
+This avoids requiring image inputs when the user wants text-only generation, and ensures the correct API endpoint is called for each mode. The polling URL should use the same base endpoint.
 
 ### Image Artifact Conversion to Base64
 
