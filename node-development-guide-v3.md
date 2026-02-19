@@ -1969,23 +1969,35 @@ export default function MyWidget(container, props) {
 
 #### Emit Changes Sparingly — Not on Every Keystroke
 
-When `onChange` is called, the framework may re-invoke the entire widget function with new props, destroying and recreating all DOM. This means calling `onChange` on every `input` event of a text field will make typing impossible — the textarea is destroyed and rebuilt after each character.
+Calling `onChange` triggers framework state updates that steal focus from the active element. For text inputs, this means the textarea loses focus after every keystroke, making typing impossible. This is not specific to custom widgets — the built-in `TextComponent` in the Griptape Nodes editor uses the same pattern:
 
-**Pattern:** For text inputs, update local state on `input` and only call `onChange` on `blur` (when the user finishes editing). For discrete controls (buttons, dropdowns, drag-end), call `onChange` immediately.
+- **Local state** (your internal data array, counters, border colors) updates immediately on every `input` event.
+- **`onChange`** is called only on `blur` — when the user clicks away or tabs out of the field.
+- **Discrete controls** (buttons, steppers, drag-end) call `onChange` immediately since they don't hold focus.
 
 ```javascript
-// Local state updates on every keystroke (no DOM rebuild)
+// Local state updates on every keystroke — UI stays responsive
 textarea.addEventListener("input", (e) => {
   localData[index].text = e.target.value;
+  // Update character counters, border colors, etc. here
 });
 
 // Emit to framework only when the user leaves the field
 textarea.addEventListener("blur", () => {
+  localData[index].text = textarea.value;
   onChange(structuredClone(localData));
+});
+
+// Discrete controls (buttons, steppers) can emit immediately
+button.addEventListener("pointerdown", (e) => {
+  e.stopPropagation();
+  localData[index].value++;
+  onChange(structuredClone(localData));
+  render();
 });
 ```
 
-This matches the pattern used by built-in widgets like the AnglePicker, which only emits on drag-end rather than during continuous mouse movement.
+> **Why not `requestAnimationFrame` to restore focus?** Attempting to call `onChange` on every keystroke and then restore focus via `requestAnimationFrame` does not reliably work — the framework's React rendering cycle can complete asynchronously, and the focus restoration races with it.
 
 #### Prevent Node Drag Interference
 
@@ -2000,6 +2012,16 @@ wrapper.className = "my-widget nodrag nowheel";
 textarea.addEventListener("pointerdown", (e) => e.stopPropagation());
 textarea.addEventListener("mousedown", (e) => e.stopPropagation());
 ```
+
+#### Prevent Keyboard Shortcut Interference
+
+The node editor binds keyboard shortcuts at the canvas level — for example, pressing `Delete` deletes the selected node. When a text input inside your widget has focus, these shortcuts still fire because keyboard events bubble up. Stop propagation on `keydown` to isolate your text inputs:
+
+```javascript
+textarea.addEventListener("keydown", (e) => e.stopPropagation());
+```
+
+This prevents the Delete key from deleting the node while the user is editing text, and stops other canvas-level shortcuts (copy, paste, undo at the node level) from interfering with normal text editing.
 
 #### Override `user-select: none` for Text Inputs
 
@@ -2032,13 +2054,66 @@ return () => {
 };
 ```
 
+#### Assign Stable IDs to List Items
+
+When building widgets that manage reorderable lists (e.g., drag-and-drop shot editors), give each item a unique ID that is decoupled from array index. Without stable IDs, item attributes such as text field contents can be lost during drag-and-drop reordering because the widget re-renders from scratch and identity was tied to position.
+
+```javascript
+let nextItemId = 1;
+
+function assignId(item) {
+  if (!item.id) {
+    item.id = `item-${nextItemId++}`;
+  } else {
+    const num = parseInt(item.id.replace("item-", ""), 10);
+    if (!isNaN(num) && num >= nextItemId) {
+      nextItemId = num + 1;
+    }
+  }
+  return item;
+}
+
+// On initialization — preserve existing IDs from saved data
+let items = value.map((v) => assignId({ ...v }));
+
+// When adding new items
+items.push(assignId({ name: "New Item", text: "" }));
+```
+
+The ID persists through reorders, re-renders, and round-trips via `onChange`. The display name (e.g., "Shot1", "Shot2") can be renumbered based on visual position while the `id` remains stable.
+
+#### Handle the `disabled` Attribute Correctly in DOM Helpers
+
+If you write a DOM helper function that creates elements from an attributes object, be careful with the `disabled` attribute. Using `setAttribute("disabled", false)` does **not** remove the disabled state — the presence of the attribute in any form disables the element. Use the property instead:
+
+```javascript
+if (key === "disabled") {
+  element.disabled = !!val;
+}
+```
+
+#### Show Drop Indicators at End of List
+
+When implementing drag-and-drop reordering, the drop target indicator (e.g., a blue border) must also appear when dragging past the last item in the list. A common approach: when the drag position is below all items, show a `border-bottom` on the last item instead of a `border-top` on a nonexistent next item:
+
+```javascript
+if (dragOverIndex === items.length && item.index === lastIndex) {
+  item.el.style.borderBottom = "2px solid #4a9eff";
+} else if (item.index === dragOverIndex) {
+  item.el.style.borderTop = "2px solid #4a9eff";
+}
+```
+
 ### Example: List-Based Editor Widget
 
 A common pattern is a widget that manages a list of structured items with add, delete, reorder, and inline editing. Key implementation details:
 
-- **Drag-and-drop reordering:** Attach `pointerdown` on drag handles, create a floating clone for visual feedback, track the insertion point via `pointermove`, and finalize the reorder on `pointerup`. Call `onChange` only after the drop.
-- **Validation constraints:** Enforce limits (max items, max total values, max text length) by disabling the add button and graying out invalid options in dropdowns rather than silently ignoring input.
+- **Stable IDs:** Assign a unique `id` to each item that survives reordering and round-trips through `onChange`.
+- **Drag-and-drop reordering:** Attach `pointerdown` on drag handles, create a floating clone for visual feedback, track the insertion point via `pointermove`, and finalize the reorder on `pointerup`. Call `onChange` only after the drop. Show drop indicators at both middle and end-of-list positions.
+- **Stepper controls:** For constrained numeric values (e.g., duration 1–15s), use ▲/▼ stepper buttons instead of dropdown menus. Disable buttons when they would violate constraints (min/max per item, max total across all items).
+- **Validation constraints:** Enforce limits (max items, max total values, max text length) by disabling the add button and stepper arrows rather than silently ignoring input.
 - **Status feedback:** Show a small status bar with current counts vs. limits (e.g., `"3 / 6 shots"`, `"8 / 15 s"`) so users understand why controls may be disabled.
+- **Text input isolation:** Stop propagation on `pointerdown`, `mousedown`, and `keydown` to prevent node drag and keyboard shortcut interference. Emit `onChange` only on `blur`.
 
 ```python
 # Python side — list parameter with widget
@@ -2048,7 +2123,7 @@ self.add_parameter(
         input_types=["list"],
         type="list",
         output_type="list",
-        default_value=[{"name": "Item1", "value": ""}],
+        default_value=[{"name": "Item1", "duration": 2, "description": ""}],
         allowed_modes={ParameterMode.PROPERTY, ParameterMode.OUTPUT},
         traits={Widget(name="MyListEditor", library="My Library")},
     )
@@ -2059,15 +2134,17 @@ self.add_parameter(
 // JS side — skeleton for a list editor widget
 export default function MyListEditor(container, props) {
   const { value, onChange, disabled } = props;
-  let items = Array.isArray(value) ? value.map((v) => ({ ...v })) : [];
 
-  function render() {
-    container.innerHTML = "";
-    const wrapper = document.createElement("div");
-    wrapper.className = "nodrag nowheel";
-    // ... build item list, add button, etc.
-    container.appendChild(wrapper);
+  // Stable ID assignment
+  let nextId = 1;
+  function assignId(item) {
+    if (!item.id) item.id = `item-${nextId++}`;
+    return item;
   }
+
+  let items = Array.isArray(value)
+    ? value.map((v) => assignId({ ...v }))
+    : [assignId({ name: "Item1", duration: 2, description: "" })];
 
   function emitChange() {
     if (!disabled && onChange) {
@@ -2075,9 +2152,35 @@ export default function MyListEditor(container, props) {
     }
   }
 
+  function render() {
+    container.innerHTML = "";
+    const wrapper = document.createElement("div");
+    wrapper.className = "nodrag nowheel";
+
+    items.forEach((item, index) => {
+      // ... build item row with drag handle, stepper, textarea, trash ...
+
+      // Text input — local update on input, emit on blur
+      textarea.addEventListener("input", (e) => {
+        items[index].description = e.target.value;
+      });
+      textarea.addEventListener("blur", () => {
+        items[index].description = textarea.value;
+        emitChange();
+      });
+
+      // Isolate text input from node-level events
+      textarea.addEventListener("pointerdown", (e) => e.stopPropagation());
+      textarea.addEventListener("mousedown", (e) => e.stopPropagation());
+      textarea.addEventListener("keydown", (e) => e.stopPropagation());
+    });
+
+    container.appendChild(wrapper);
+  }
+
   render();
 
-  return () => { /* cleanup */ };
+  return () => { /* cleanup document-level listeners */ };
 }
 ```
 
