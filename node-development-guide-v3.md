@@ -134,7 +134,8 @@ All Parameter attributes:
 - **serializable**: bool (default True) - set False for non-serializable values (drivers, file handles, etc.)
 - **user_defined**: bool (default False)
 - **private**: bool (default False) - hide from general user editing (library/internal use)
-- **parent_container_name**: str|None for grouping
+- **parent_container_name**: str|None — assigns this parameter as a child of a `ParameterContainer` (i.e. a `ParameterList` or `ParameterDictionary`). Used for list-like ownership.
+- **parent_element_name**: str|None — nests this parameter under a `ParameterGroup` (a UI grouping element). Used for visual grouping in the node UI.
 
 ### Traits
 
@@ -521,6 +522,40 @@ See `example_control_node.py` and `image_carousel.py` for working implementation
 - Container parameters are represented as `ParameterContainer` objects in the engine. They are **always truthy**, even when empty (they override `__bool__()` to avoid bugs with stale cached values).
 - `ParameterList` supports several UI convenience options (e.g. `collapsed`, grid display, and column count) that are merged into `ui_options` at runtime.
 - `ParameterDictionary` is an ordered collection of key/value pair children (internally represented as a list to preserve order).
+
+**`parent_container_name` vs `parent_element_name` — critical distinction:**
+
+Parameters have two separate parent-pointer attributes that serve different purposes:
+
+| Attribute | Points to | Purpose |
+|---|---|---|
+| `parent_container_name` | `ParameterContainer` (`ParameterList`, `ParameterDictionary`) | **Ownership.** The parameter is a child of a list/dictionary container. The engine uses this for `add_parameter()`, child cleanup, value aggregation, and serialization/reload. |
+| `parent_element_name` | `ParameterGroup` | **UI grouping.** The parameter is visually nested under a collapsible group in the node UI. The engine uses this for `add_parameter()` placement, `_remove_existing_*()` lookups, and serialization/reload. |
+
+**Do NOT confuse them.** If you use `parent_container_name` when you should be using `parent_element_name` (or vice versa), the parameter will:
+1. Appear at the node root instead of inside the intended group/container
+2. Not be cleaned up between runs (e.g. stale outputs persist)
+3. Fail to restore after save/reload — the reload handler looks for a `ParameterContainer` or `ParameterGroup` by the name you specified, and if the type doesn't match, the parameter is silently dropped before its saved values are applied
+
+**Rule of thumb:**
+- Putting a parameter inside a **`ParameterList`** or **`ParameterDictionary`**? → use `parent_container_name`
+- Putting a parameter inside a **`ParameterGroup`** for visual organization? → use `parent_element_name`
+
+```python
+# ✅ CORRECT: Nesting under a ParameterGroup for UI grouping
+param = ParameterImage(
+    name="cell_0_0",
+    parent_element_name=self._grid_cells_group.name,  # ParameterGroup
+    ...
+)
+
+# ❌ WRONG: Using parent_container_name for a ParameterGroup
+param = ParameterImage(
+    name="cell_0_0",
+    parent_container_name=self._grid_cells_group.name,  # BUG: this is a ParameterGroup, not a ParameterContainer
+    ...
+)
+```
 
 ### ParameterList Pattern
 
@@ -1057,6 +1092,7 @@ When adding a new node to the core library, also add node reference documentatio
 
 - Repo-wide lint/type checks can surface issues in **untracked** files too. Avoid leaving untracked folders/files in the repo (for example, copied scratch folders) when running checks or preparing a PR.
 - If ruff flags function complexity (e.g., `C901`, `PLR0912`), prefer refactoring into smaller helpers over suppressing.
+- **`parent_container_name` ≠ `parent_element_name`**: These two `Parameter` attributes look similar but serve completely different purposes. `parent_container_name` is for `ParameterContainer` (list/dictionary ownership), `parent_element_name` is for `ParameterGroup` (UI grouping). Mixing them up causes parameters to land at the node root, skip cleanup between runs, and silently vanish on save/reload. See the [Containers](#containers) section for the full distinction.
 
 ## Advanced Topics
 
