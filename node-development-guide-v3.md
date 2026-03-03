@@ -883,6 +883,7 @@ All callbacks are overridable:
 - `hide_parameter_by_name()`, `show_parameter_by_name()`
 - `append_value_to_parameter()`
 - `publish_update_to_parameter()`
+- `show_message_by_name()`, `hide_message_by_name()`, `get_message_by_name_or_element_id()`
 
 ## Best Practices
 
@@ -1373,7 +1374,7 @@ class MyIterativeNode(BaseIterativeStartNode):
         self.status_message.value = status
 ```
 
-**Best Practice**: Use ParameterMessage for both static external links and dynamic status updates.
+**Best Practice**: Use ParameterMessage for static external links, dynamic status updates, and deprecation notices. For a full walkthrough of the deprecation notice pattern (hidden message + `before_value_set` auto-migration), see [Deprecated Model Migration and User Notification](#deprecated-model-migration-and-user-notification).
 
 ## Modern UI/UX Patterns
 
@@ -3016,6 +3017,123 @@ def validate_before_node_run(self) -> list[Exception] | None:
 
     return exceptions if exceptions else None
 ```
+
+### Deprecated Model Migration and User Notification
+
+When a model provider deprecates endpoints (e.g., preview models replaced by GA equivalents), nodes should automatically migrate saved workflows while informing the user. This pattern uses three components working together:
+
+1. A `DEPRECATED_MODELS` dictionary mapping old model names to their replacements
+2. A hidden `ParameterMessage` element that acts as a dismissable info banner
+3. The `before_value_set` lifecycle hook to intercept and replace deprecated values before they are applied
+
+**Step 1: Define the deprecation map and current models**
+
+```python
+from griptape_nodes.exe_types.core_types import Parameter, ParameterMessage
+from griptape_nodes.traits.button import Button
+
+MODELS = [
+    "veo-3.1-generate-001",
+    "veo-3.1-fast-generate-001",
+]
+
+# Mapping of deprecated model names to their replacements.
+# When a saved workflow references one of these, the node auto-migrates.
+DEPRECATED_MODELS: dict[str, str] = {
+    "veo-3.1-generate-preview": "veo-3.1-generate-001",
+    "veo-3.1-fast-generate-preview": "veo-3.1-fast-generate-001",
+    "veo-3.0-generate-001": "veo-3.1-generate-001",
+    "veo-2.0-generate-001": "veo-3.1-generate-001",
+}
+```
+
+**Step 2: Add a hidden ParameterMessage in `__init__`**
+
+Place this after the model parameter so it appears near the model selector in the UI. The `hide=True` keeps it invisible until needed. The `Button` trait with `on_click` gives the user a "Dismiss" button.
+
+```python
+def __init__(self, **kwargs):
+    super().__init__(**kwargs)
+
+    # ... model parameter added above ...
+
+    # Hidden deprecation notice — shown when a deprecated model is detected
+    self.add_node_element(
+        ParameterMessage(
+            name="model_deprecation_notice",
+            title="Model Deprecation Notice",
+            variant="info",
+            value="",
+            traits={
+                Button(
+                    full_width=True,
+                    on_click=lambda _, __: self.hide_message_by_name("model_deprecation_notice"),
+                )
+            },
+            button_text="Dismiss",
+            hide=True,
+        )
+    )
+```
+
+**Step 3: Implement `before_value_set` to intercept deprecated models**
+
+`before_value_set` fires before the parameter's value is applied. This is the right place to swap a deprecated model for its replacement, because `after_value_set` (and any logic that depends on the model value) will see the replacement.
+
+```python
+def before_value_set(self, parameter: Parameter, value: Any) -> Any:
+    """Auto-migrate deprecated models and show a deprecation notice."""
+    if parameter.name == "model" and value in DEPRECATED_MODELS:
+        replacement = DEPRECATED_MODELS[value]
+        message = self.get_message_by_name_or_element_id("model_deprecation_notice")
+        if message is not None:
+            message.value = (
+                f"The '{value}' model has been deprecated. "
+                f"The model has been updated to '{replacement}'. "
+                "Please save your workflow to apply this change."
+            )
+            self.show_message_by_name("model_deprecation_notice")
+        value = replacement
+
+    return super().before_value_set(parameter, value)
+```
+
+**Step 4: Hide the notice when the user selects a valid model**
+
+In `after_value_set`, dismiss the banner when the current model is not deprecated. This handles the case where the user manually selects a different model after the migration.
+
+```python
+def after_value_set(self, parameter: Parameter, value: Any) -> None:
+    if parameter.name == "model":
+        # ... model-specific logic (update duration choices, etc.) ...
+        if value not in DEPRECATED_MODELS:
+            self.hide_message_by_name("model_deprecation_notice")
+
+    return super().after_value_set(parameter, value)
+```
+
+**How it works end-to-end:**
+
+1. A user opens a workflow saved with `"veo-3.1-generate-preview"`.
+2. The framework calls `before_value_set` with the saved value.
+3. The hook detects it in `DEPRECATED_MODELS`, swaps it to `"veo-3.1-generate-001"`, and shows the info banner.
+4. `after_value_set` fires with the replacement value — model-dependent UI updates (duration choices, parameter visibility, etc.) work correctly because they see the valid GA model.
+5. The user sees the banner: *"The 'veo-3.1-generate-preview' model has been deprecated. The model has been updated to 'veo-3.1-generate-001'. Please save your workflow to apply this change."*
+6. The user can dismiss the banner or it hides automatically on the next valid model selection.
+
+**Key API methods used:**
+
+| Method | Purpose |
+|--------|---------|
+| `self.add_node_element(ParameterMessage(...))` | Adds the message element to the node |
+| `self.get_message_by_name_or_element_id(name)` | Retrieves the message element to update its value |
+| `self.show_message_by_name(name)` | Makes the hidden message visible |
+| `self.hide_message_by_name(name)` | Hides the message again |
+
+**Reference implementations:**
+
+- `GriptapeCloudPrompt` in `griptape_nodes_library/config/prompt/griptape_cloud_prompt.py` (standard library)
+- `VeoVideoGenerator`, `VeoImageToVideoGenerator`, `VeoTextToVideoWithRef` in the `griptape-nodes-library-googleai` external library
 
 ### Enhanced Debug Logging for API Integration
 
