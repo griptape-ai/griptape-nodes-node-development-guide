@@ -2610,6 +2610,309 @@ def get_next_control_output(self) -> Parameter | None:
     return self.get_parameter_by_name("Else")
 ```
 
+### Widget Testbed
+
+The **widget-testbed** is a standalone React + Vite application for testing and developing custom widget components outside the full Griptape Nodes environment. It provides a lightweight, hot-reloading development environment where you can iterate quickly on widget UI and behavior.
+
+#### Purpose
+
+Custom widgets for Griptape Nodes are imperative JavaScript functions that manage their own DOM and state. The widget-testbed allows you to:
+
+- **Rapid prototyping**: Test widget behavior with instant hot-reload during development
+- **Isolated testing**: Work on widget UI/UX without launching the full Griptape Nodes application
+- **State management verification**: Test complex state transitions and user interactions
+- **Cross-widget development**: Easily switch between testing different widgets
+- **Debug UI issues**: Inspect the widget's rendered output and state in a clean environment
+
+#### When to Use
+
+Use the widget-testbed when:
+
+- Creating a new custom widget component from scratch
+- Debugging widget behavior issues (focus loss, drag-and-drop, event handling)
+- Testing widget state management and `onChange` callback patterns
+- Verifying widget appearance and layout without node editor interference
+- Developing widgets that manage complex internal state (lists, editors, multi-step forms)
+
+#### File Structure
+
+```
+widget-testbed/
+├── index.html              # Entry HTML with minimal styling
+├── package.json            # Dependencies (React 19, Vite 6)
+├── vite.config.js          # Vite configuration with React plugin
+├── src/
+│   ├── main.jsx            # React app entry point
+│   ├── App.jsx             # Main test harness with controls
+│   └── WidgetHost.jsx      # React wrapper for imperative widgets
+└── node_modules/           # Dependencies
+```
+
+#### Key Components
+
+##### WidgetHost.jsx
+
+The `WidgetHost` component is a React wrapper that hosts imperative widget functions using the same `(container, props)` signature as Griptape Nodes widgets. It handles the lifecycle of mounting, updating, and unmounting widgets while preventing unnecessary re-renders.
+
+**Key features:**
+
+- **Imperative widget support**: Calls your widget function with a container element and props
+- **Smart re-mounting**: Only re-mounts the widget when value changes externally (e.g., Reset button)
+- **onChange differentiation**: Tracks whether changes originated from the widget or parent
+- **Cleanup management**: Properly calls widget cleanup functions on unmount or re-mount
+
+**Props:**
+
+| Prop       | Type       | Description                                          |
+| ---------- | ---------- | ---------------------------------------------------- |
+| `widgetFn` | `function` | The widget function to render (container, props) => cleanup |
+| `value`    | `any`      | Current widget value                                  |
+| `onChange` | `function` | Callback when widget emits changes                    |
+| `disabled` | `boolean`  | Whether widget should be read-only (default: false)   |
+| `height`   | `number`   | Suggested height in pixels (default: 0)               |
+
+**Implementation pattern:**
+
+```javascript
+import WidgetHost from "./WidgetHost";
+import MyWidget from "../../path/to/widgets/MyWidget.js";
+
+export default function App() {
+  const [value, setValue] = useState(initialValue);
+  const [disabled, setDisabled] = useState(false);
+
+  return (
+    <WidgetHost
+      widgetFn={MyWidget}
+      value={value}
+      onChange={setValue}
+      disabled={disabled}
+    />
+  );
+}
+```
+
+##### App.jsx
+
+The main test harness that provides:
+
+- **Widget mounting**: Imports and renders the widget via `WidgetHost`
+- **State controls**: Checkbox to toggle disabled state
+- **Debug panel**: JSON view of current widget state (toggle with checkbox)
+- **Reset functionality**: Button to reset widget to initial state
+- **Visual layout**: Clean, dark-themed UI matching Griptape Nodes aesthetic
+
+#### Testing a Widget
+
+**1. Install dependencies:**
+
+```bash
+cd widget-testbed
+npm install
+```
+
+**2. Update App.jsx to import your widget:**
+
+```javascript
+import MyWidget from "../../my-library/widgets/MyWidget.js";
+
+const INITIAL_VALUE = { /* your initial state */ };
+
+export default function App() {
+  const [value, setValue] = useState(INITIAL_VALUE);
+  const [disabled, setDisabled] = useState(false);
+  const [showDebug, setShowDebug] = useState(true);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      <h1 style={{ fontSize: 18, fontWeight: 600, color: "#eee" }}>
+        MyWidget Testbed
+      </h1>
+
+      <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+          <input
+            type="checkbox"
+            checked={disabled}
+            onChange={(e) => setDisabled(e.target.checked)}
+          />
+          Disabled
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+          <input
+            type="checkbox"
+            checked={showDebug}
+            onChange={(e) => setShowDebug(e.target.checked)}
+          />
+          Show JSON
+        </label>
+        <button
+          onClick={() => setValue(INITIAL_VALUE)}
+          style={{
+            padding: "4px 12px",
+            fontSize: 12,
+            background: "#333",
+            border: "1px solid #555",
+            borderRadius: 4,
+            color: "#ccc",
+            cursor: "pointer",
+          }}
+        >
+          Reset
+        </button>
+      </div>
+
+      <div
+        style={{
+          border: "1px solid #333",
+          borderRadius: 8,
+          overflow: "hidden",
+        }}
+      >
+        <WidgetHost
+          widgetFn={MyWidget}
+          value={value}
+          onChange={setValue}
+          disabled={disabled}
+        />
+      </div>
+
+      {showDebug && (
+        <pre
+          style={{
+            background: "#1a1a1a",
+            border: "1px solid #333",
+            borderRadius: 8,
+            padding: 12,
+            fontSize: 11,
+            color: "#8c8",
+            overflow: "auto",
+            maxHeight: 300,
+          }}
+        >
+          {JSON.stringify(value, null, 2)}
+        </pre>
+      )}
+    </div>
+  );
+}
+```
+
+**3. Start the development server:**
+
+```bash
+npm run dev
+```
+
+**4. Open in browser:**
+
+Navigate to `http://localhost:5173` (or the port shown in terminal).
+
+#### Development Workflow
+
+**Typical development cycle:**
+
+1. **Write widget code**: Create or modify your widget `.js` file
+2. **Update testbed**: Import the widget in `App.jsx`
+3. **Run dev server**: `npm run dev` for hot-reload
+4. **Test interactions**: Click, type, drag, and interact with the widget
+5. **Verify state**: Check the JSON debug panel to see state changes
+6. **Test edge cases**: Use Reset button and Disabled toggle to test edge cases
+7. **Iterate**: Make changes to widget code and see updates instantly
+
+**Common testing scenarios:**
+
+- **Focus management**: Type in text fields, ensure focus isn't lost on `onChange`
+- **Drag-and-drop**: Test reordering, ensure item identity is preserved
+- **State transitions**: Add/remove items, verify correct state updates
+- **Disabled mode**: Toggle disabled, ensure widget becomes read-only
+- **External state changes**: Use Reset button to verify widget handles external updates
+- **Event propagation**: Ensure clicks/drags don't interfere with parent (use `nodrag` class)
+- **Keyboard shortcuts**: Test that Delete, Ctrl+C, etc. don't trigger node-level actions
+
+#### WidgetHost Pattern Details
+
+The `WidgetHost` component solves a critical problem: **preventing unnecessary widget re-mounts when the widget itself triggers `onChange`**. Without this, the widget would be destroyed and recreated on every keystroke, losing focus and internal state.
+
+**How it works:**
+
+1. **Flag-based change tracking**: `isWidgetChangeRef` tracks whether the current change originated from the widget
+2. **Conditional re-mount**: Widget is only re-mounted when `value` changes externally (not from `onChange`)
+3. **Stable onChange callback**: Uses `useCallback` to prevent unnecessary effect triggers
+4. **Cleanup on unmount**: Calls widget's cleanup function when widget is destroyed or value changes externally
+
+**Key implementation:**
+
+```javascript
+const isWidgetChangeRef = useRef(false);
+
+const stableOnChange = useCallback(
+  (newValue) => {
+    isWidgetChangeRef.current = true;  // Mark as widget-originated change
+    onChange?.(newValue);
+  },
+  [onChange],
+);
+
+useEffect(() => {
+  if (isWidgetChangeRef.current) {
+    isWidgetChangeRef.current = false;  // Clear flag and skip re-mount
+    return;
+  }
+
+  // External value change: re-mount widget
+  const cleanup = widgetFn(container, { value, onChange: stableOnChange, disabled, height });
+  return cleanup;
+}, [widgetFn, value, disabled, height, stableOnChange]);
+```
+
+This pattern ensures the widget maintains its internal DOM and state across `onChange` calls, preventing focus loss and other re-mount issues.
+
+#### Best Practices
+
+**When using the widget-testbed:**
+
+- **Match production props**: Use the same prop names (`value`, `onChange`, `disabled`, `height`) as Griptape Nodes
+- **Test disabled state**: Always verify your widget respects the `disabled` prop
+- **Verify cleanup**: Check that your widget's cleanup function properly removes event listeners
+- **Test edge cases**: Use the Reset button to test how your widget handles external value changes
+- **Inspect state**: Keep the JSON debug panel visible to understand state flow
+- **Test keyboard events**: Ensure `stopPropagation` on `keydown` prevents node-level shortcuts
+- **Test mouse events**: Ensure `stopPropagation` on `pointerdown`/`mousedown` prevents node dragging
+- **Verify cloning**: Check that `onChange` receives cloned data, not references to internal state
+
+**Don't:**
+
+- Don't commit `widget-testbed/` to your library repository (it's a development tool)
+- Don't test production-specific features (node connections, workflow execution)
+- Don't assume testbed behavior matches production exactly (always final-test in Griptape Nodes)
+
+#### Example: MultiShotEditor Testbed
+
+The current testbed configuration tests the `MultiShotEditor` widget from the Kling library:
+
+```javascript
+import MultiShotEditor from "../../kling/widgets/MultiShotEditor.js";
+
+const INITIAL_SHOTS = [{ name: "Shot1", duration: 2, description: "" }];
+
+export default function App() {
+  const [shots, setShots] = useState(INITIAL_SHOTS);
+  // ... controls and debug UI ...
+
+  return (
+    <WidgetHost
+      widgetFn={MultiShotEditor}
+      value={shots}
+      onChange={setShots}
+      disabled={disabled}
+    />
+  );
+}
+```
+
+This demonstrates the testbed pattern for a complex widget managing an array of shot objects with drag-and-drop reordering, add/remove functionality, and multiple text inputs.
+
 ## Asynchronous API Integration
 
 ### Process Method with Yield Syntax
