@@ -10,19 +10,20 @@
 6. [Advanced Parameter Patterns](#advanced-parameter-patterns)
 7. [Lifecycle Callbacks](#lifecycle-callbacks)
 8. [Best Practices](#best-practices)
-9. [Advanced Topics](#advanced-topics)
-10. [Modern UI/UX Patterns](#modern-uiux-patterns)
-11. [Production Error Handling](#production-error-handling)
-12. [Logging Best Practices](#logging-best-practices)
-13. [Flexible Artifact Processing](#flexible-artifact-processing)
-14. [Creating Node Libraries](#creating-node-libraries)
-15. [Custom Widget Components](#custom-widget-components)
-16. [Library Structure with uv Dependency Management](#library-structure-with-uv-dependency-management)
-17. [Two-Mode UI Pattern (Simple + Custom)](#two-mode-ui-pattern-simple--custom)
-18. [Music/Audio Generation API Patterns](#musicaudio-generation-api-patterns)
-19. [Documentation Patterns for Node Libraries](#documentation-patterns-for-node-libraries)
-20. [Contributing to the Standard Library](#contributing-to-the-standard-library)
-21. [Appendix](#appendix)
+9. [Working with the Project System](#working-with-the-project-system)
+10. [Advanced Topics](#advanced-topics)
+11. [Modern UI/UX Patterns](#modern-uiux-patterns)
+12. [Production Error Handling](#production-error-handling)
+13. [Logging Best Practices](#logging-best-practices)
+14. [Flexible Artifact Processing](#flexible-artifact-processing)
+15. [Creating Node Libraries](#creating-node-libraries)
+16. [Custom Widget Components](#custom-widget-components)
+17. [Library Structure with uv Dependency Management](#library-structure-with-uv-dependency-management)
+18. [Two-Mode UI Pattern (Simple + Custom)](#two-mode-ui-pattern-simple--custom)
+19. [Music/Audio Generation API Patterns](#musicaudio-generation-api-patterns)
+20. [Documentation Patterns for Node Libraries](#documentation-patterns-for-node-libraries)
+21. [Contributing to the Standard Library](#contributing-to-the-standard-library)
+22. [Appendix](#appendix)
 
 ## Introduction
 
@@ -1094,6 +1095,297 @@ When adding a new node to the core library, also add node reference documentatio
 - Repo-wide lint/type checks can surface issues in **untracked** files too. Avoid leaving untracked folders/files in the repo (for example, copied scratch folders) when running checks or preparing a PR.
 - If ruff flags function complexity (e.g., `C901`, `PLR0912`), prefer refactoring into smaller helpers over suppressing.
 - **`parent_container_name` ≠ `parent_element_name`**: These two `Parameter` attributes look similar but serve completely different purposes. `parent_container_name` is for `ParameterContainer` (list/dictionary ownership), `parent_element_name` is for `ParameterGroup` (UI grouping). Mixing them up causes parameters to land at the node root, skip cleanup between runs, and silently vanish on save/reload. See the [Containers](#containers) section for the full distinction.
+
+## Working with the Project System
+
+The **project system** is Griptape Nodes' centralized file management framework that handles file organization, naming, and saving across all workflows. It eliminates hard-coded file paths and provides a consistent, configurable approach to file operations.
+
+### Overview
+
+Before the project system, nodes used `StaticFilesManager.save_static_file()` with UUID-based filenames scattered across various locations. The project system replaces this with:
+
+- **Centralized configuration**: File organization rules defined in `griptape-nodes-project.yml`
+- **Named situations**: Semantic contexts for file operations (e.g., "save_node_output", "copy_external_file")
+- **Template-based paths**: Dynamic path generation using macros like `{outputs}/{node_name}_{file_name_base}.{file_extension}`
+- **Consistent behavior**: All nodes automatically follow the same file layout
+
+### Key Components
+
+#### Workspace
+
+The root directory containing all project work. Configured in Griptape Nodes settings, it serves as the base for relative path resolution.
+
+```
+workspace/
+├── griptape-nodes-project.yml    # Optional customizations
+├── my_workflow/
+│   ├── inputs/
+│   ├── outputs/
+│   ├── temp/
+│   └── .griptape-nodes-previews/
+```
+
+#### Situations
+
+Named scenarios that define:
+1. **Where** files are saved (via macro templates)
+2. **How** to handle collisions (create_new, overwrite, fail)
+3. **Fallback** behavior if saving fails
+
+Common situations include:
+
+| Situation | Purpose | Default Macro Pattern |
+|-----------|---------|----------------------|
+| `save_node_output` | Generated node outputs | `{outputs}/{node_name?:_}{file_name_base}{_index?:03}.{file_extension}` |
+| `copy_external_file` | External file imports | `{inputs}/{node_name?:_}{parameter_name?:_}{file_name_base}...` |
+| `download_url` | Downloaded files | `{inputs}/{sanitized_url}` |
+| `save_preview` | Thumbnail generation | `{previews}/{source_relative_path?:/}...` |
+
+#### Macros
+
+Template strings in situations and directories that generate concrete file paths dynamically. Examples:
+
+- `{outputs}` - resolves to the outputs directory path
+- `{node_name}` - current node's name
+- `{file_name_base}` - filename without extension
+- `{file_extension}` - file extension
+- `{_index?:03}` - auto-incrementing counter (3-digit format)
+
+#### Directories
+
+Logical name-to-path mappings that can be referenced in macros:
+
+```yaml
+directories:
+  outputs:
+    path_macro: "outputs"
+  custom_renders:
+    path_macro: "my_custom_path/{workflow_name}"
+```
+
+### Using the Project System in Nodes
+
+There are two main patterns for working with project files in nodes:
+
+#### Pattern 1: ProjectFileParameter (Recommended for Node Outputs)
+
+Use `ProjectFileParameter` when your node has a configurable output file parameter that users might want to customize.
+
+```python
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
+from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
+from griptape.artifacts.video_url_artifact import VideoUrlArtifact
+
+class MyVideoNode(ControlNode):
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+
+        # Add regular output parameter
+        self.add_parameter(Parameter(
+            name="output_video",
+            output_type="VideoUrlArtifact",
+            tooltip="Generated video",
+            allowed_modes={ParameterMode.OUTPUT}
+        ))
+
+        # Add project file parameter for output file configuration
+        self._output_video_file = ProjectFileParameter(
+            node=self,
+            name="output_video_file",
+            default_filename="output_video.mp4",
+        )
+        self._output_video_file.add_parameter()
+
+    def process(self) -> None:
+        # ... generate video_bytes ...
+
+        # Use build_file() to get a ProjectFileDestination
+        dest = self._output_video_file.build_file()
+        saved = dest.write_bytes(video_bytes)
+
+        # Set the output parameter with the saved location
+        self.parameter_output_values["output_video"] = VideoUrlArtifact(saved.location)
+```
+
+**Key Points:**
+- `ProjectFileParameter` creates a UI parameter that users can configure
+- Call `build_file()` to get a `ProjectFileDestination` instance
+- Use `write_bytes()` to save the file
+- Access the saved file's URL/path via `saved.location`
+
+#### Pattern 2: ProjectFileDestination Directly (For Utility Functions)
+
+Use `ProjectFileDestination.from_situation()` directly in utility functions or when you don't need user configuration.
+
+```python
+from griptape_nodes.files.project_file import ProjectFileDestination
+from griptape.artifacts.video_url_artifact import VideoUrlArtifact
+
+def frames_to_video_artifact(frames: list, fps: int = 30, video_format: str = "mp4") -> VideoUrlArtifact:
+    """Convert a list of frames to a VideoUrlArtifact."""
+    # ... process frames into video_bytes ...
+
+    # Save using project file system
+    dest = ProjectFileDestination.from_situation(
+        filename=f"video.{video_format}",
+        situation="save_node_output"
+    )
+    saved = dest.write_bytes(video_bytes)
+
+    return VideoUrlArtifact(saved.location)
+```
+
+**Key Points:**
+- Use `from_situation()` to create a destination with a named situation
+- The `filename` parameter is the base filename (will be transformed by the situation's macro)
+- The situation (e.g., "save_node_output") determines the final path and collision behavior
+
+### Migration from StaticFilesManager
+
+#### Old Pattern (Deprecated)
+
+```python
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+import uuid
+
+def old_save_video(video_bytes: bytes) -> VideoUrlArtifact:
+    filename = f"{uuid.uuid4()}.mp4"
+    url = GriptapeNodes.StaticFilesManager().save_static_file(video_bytes, filename)
+    return VideoUrlArtifact(url)
+```
+
+#### New Pattern
+
+```python
+from griptape_nodes.files.project_file import ProjectFileDestination
+
+def new_save_video(video_bytes: bytes) -> VideoUrlArtifact:
+    dest = ProjectFileDestination.from_situation(
+        filename="video.mp4",
+        situation="save_node_output"
+    )
+    saved = dest.write_bytes(video_bytes)
+    return VideoUrlArtifact(saved.location)
+```
+
+**Migration Benefits:**
+- No more UUID generation required
+- Consistent file organization across all nodes
+- User-configurable file paths via project templates
+- Better file tracking and management
+- Automatic handling of name collisions
+
+### Common Situations and When to Use Them
+
+- **`save_node_output`**: Primary situation for files generated by nodes (images, videos, audio, etc.)
+- **`copy_external_file`**: When importing/copying files from external sources
+- **`download_url`**: When downloading files from URLs
+- **`save_preview`**: For generating thumbnail or preview images
+- **`save_static_file`**: For static assets that don't change between runs
+
+### Advanced Configuration
+
+Users can customize the project system by creating a `griptape-nodes-project.yml` file in their workspace:
+
+```yaml
+project_template_schema_version: "0.1.0"
+name: "My Custom Project"
+
+directories:
+  outputs:
+    path_macro: "final_outputs/{workflow_name}"
+
+situations:
+  save_node_output:
+    macro: "{outputs}/{node_name}_{file_name_base}_{_index:04}.{file_extension}"
+    policy:
+      on_collision: create_new
+      create_dirs: true
+```
+
+Your nodes automatically respect these customizations without any code changes.
+
+### Best Practices
+
+1. **Always use the project system** for saving files - never use hard-coded paths
+2. **Choose the right pattern**: Use `ProjectFileParameter` for user-configurable outputs, `ProjectFileDestination` for utility functions
+3. **Use semantic situations**: Pick the situation that best describes your operation
+4. **Let macros handle naming**: Don't generate UUIDs or timestamps yourself - let the situation's macro and collision policy handle it
+5. **Handle temporary files properly**: Use Python's `tempfile` for intermediate processing, only save final results via the project system
+6. **Clean up temporary files**: Always clean up temporary files after copying to the project system
+
+### Example: Complete Video Processing Node
+
+```python
+import tempfile
+from pathlib import Path
+from typing import Any
+
+from griptape.artifacts.video_url_artifact import VideoUrlArtifact
+from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
+from griptape_nodes.exe_types.node_types import ControlNode, AsyncResult
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
+from griptape_nodes.files.file import File
+
+class ProcessVideo(ControlNode):
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+
+        self.add_parameter(Parameter(
+            name="input_video",
+            input_types=["VideoUrlArtifact"],
+            type="VideoUrlArtifact",
+            tooltip="Input video to process"
+        ))
+
+        self.add_parameter(Parameter(
+            name="output_video",
+            output_type="VideoUrlArtifact",
+            tooltip="Processed video",
+            allowed_modes={ParameterMode.OUTPUT}
+        ))
+
+        # Add project file parameter for output
+        self._output_video_file = ProjectFileParameter(
+            node=self,
+            name="output_video_file",
+            default_filename="processed_video.mp4",
+        )
+        self._output_video_file.add_parameter()
+
+    def process(self) -> AsyncResult:
+        yield lambda: self._process()
+
+    def _process(self) -> None:
+        # Get input video
+        input_artifact = self.get_parameter_value("input_video")
+        input_bytes = File(input_artifact.value).read_bytes()
+
+        # Process in temporary location
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp_file:
+            temp_path = Path(temp_file.name)
+
+        try:
+            # Write input to temp file
+            temp_path.write_bytes(input_bytes)
+
+            # ... perform processing on temp_path ...
+
+            # Read processed result
+            output_bytes = temp_path.read_bytes()
+
+            # Save using project system
+            dest = self._output_video_file.build_file()
+            saved = dest.write_bytes(output_bytes)
+
+            # Set output
+            self.parameter_output_values["output_video"] = VideoUrlArtifact(saved.location)
+
+        finally:
+            # Clean up temporary file
+            if temp_path.exists():
+                temp_path.unlink()
+```
 
 ## Advanced Topics
 
@@ -2475,11 +2767,11 @@ from griptape_nodes_library.utils.file_utils import generate_filename
 
 #### Image Utilities (`griptape_nodes_library.utils.image_utils`)
 
-| Function                                            | Purpose                                         | Returns            |
-| --------------------------------------------------- | ----------------------------------------------- | ------------------ |
-| `dict_to_image_url_artifact(d)`                     | Convert dict representation to ImageUrlArtifact | `ImageUrlArtifact` |
-| `load_pil_from_url(url)`                            | Load PIL Image from URL (handles localhost)     | `PIL.Image.Image`  |
-| `save_pil_image_with_named_filename(img, filename)` | Save PIL Image to static storage                | `ImageUrlArtifact` |
+| Function                                            | Purpose                                              | Returns            |
+| --------------------------------------------------- | ---------------------------------------------------- | ------------------ |
+| `dict_to_image_url_artifact(d)`                     | Convert dict representation to ImageUrlArtifact      | `ImageUrlArtifact` |
+| `load_pil_from_url(url)`                            | Load PIL Image from URL (handles localhost)          | `PIL.Image.Image`  |
+| `save_pil_image_with_named_filename(img, filename)` | Save PIL Image using project system (see note below) | `ImageUrlArtifact` |
 
 **Example usage:**
 
@@ -2522,6 +2814,29 @@ from griptape_nodes_library.utils.file_utils import generate_filename
 # Generate filename like "ColorMatch_processed_abc123.png"
 filename = generate_filename(self.name, suffix="processed", ext="png")
 ```
+
+#### Project System (`griptape_nodes.files.project_file`)
+
+| Class/Function                           | Purpose                                          | Returns                  |
+| ---------------------------------------- | ------------------------------------------------ | ------------------------ |
+| `ProjectFileDestination.from_situation()` | Create file destination with named situation     | `ProjectFileDestination` |
+| `ProjectFileParameter`                   | Parameter component for configurable file output | -                        |
+
+**Example usage:**
+
+```python
+from griptape_nodes.files.project_file import ProjectFileDestination
+
+# Save file using project system
+dest = ProjectFileDestination.from_situation(
+    filename="output.mp4",
+    situation="save_node_output"
+)
+saved = dest.write_bytes(file_bytes)
+artifact = VideoUrlArtifact(saved.location)
+```
+
+**Note:** The utility functions `save_pil_image_with_named_filename()` and similar helpers use the project system internally. For new code, prefer using `ProjectFileParameter` or `ProjectFileDestination` directly to have full control over file handling. See [Working with the Project System](#working-with-the-project-system) for comprehensive documentation.
 
 ### Advanced Parameter Types
 
